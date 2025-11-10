@@ -105,17 +105,13 @@ export class N8NDocumentationMCPServer {
     
     logger.info(`MCP server initialized with ${totalTools} tools (n8n API: ${apiConfigured ? 'configured' : 'not configured'})`);
     
-    this.server = new Server(
-      {
-        name: 'n8n-documentation-mcp',
-        version: '1.0.0',
+    this.server = new Server({
+      name: 'n8n-documentation-mcp',
+      version: '1.0.0',
+      capabilities: {
+        tools: {},
       },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
+    });
 
     this.setupHandlers();
   }

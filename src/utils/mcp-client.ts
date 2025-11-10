@@ -29,15 +29,11 @@ export class MCPClient {
 
   constructor(config: MCPClientConfig) {
     this.config = config;
-    this.client = new Client(
-      {
-        name: 'n8n-mcp-client',
-        version: '1.0.0',
-      },
-      {
-        capabilities: {},
-      }
-    );
+    this.client = new Client({
+      name: 'n8n-mcp-client',
+      version: '1.0.0',
+      capabilities: {},
+    });
   }
 
   async connect(): Promise<void> {

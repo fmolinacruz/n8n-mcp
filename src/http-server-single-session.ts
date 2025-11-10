@@ -15,7 +15,7 @@ import dotenv from 'dotenv';
 import { getStartupBaseUrl, formatEndpointUrls, detectBaseUrl } from './utils/url-detector';
 import { PROJECT_VERSION } from './utils/version';
 import { v4 as uuidv4 } from 'uuid';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { InitializeRequest, InitializeRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { 
   negotiateProtocolVersion, 
   logProtocolNegotiation,
@@ -309,7 +309,7 @@ export class SingleSessionHTTPServer {
     return this.consoleManager.wrapOperation(async () => {
       try {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        const isInitialize = req.body ? isInitializeRequest(req.body) : false;
+        const isInitialize = req.body ? InitializeRequestSchema.safeParse(req.body).success : false;
         
         // Log comprehensive incoming request details for debugging
         logger.info('handleRequest: Processing MCP request - SDK PATTERN', {

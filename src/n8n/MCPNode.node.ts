@@ -4,6 +4,7 @@ import {
   INodeType,
   INodeTypeDescription,
   NodeOperationError,
+  NodeConnectionType,
 } from 'n8n-workflow';
 import { MCPClient } from '../utils/mcp-client';
 import { N8NMCPBridge } from '../utils/bridge';
@@ -19,8 +20,18 @@ export class MCPNode implements INodeType {
     defaults: {
       name: 'MCP',
     },
-    inputs: ['main'],
-    outputs: ['main'],
+    inputs: [
+      {
+        type: NodeConnectionType.Main,
+        required: true,
+      }
+    ],
+        outputs: [
+          {
+            displayName: 'Main Output',
+            type: NodeConnectionType.Main,
+          }
+        ],
     credentials: [
       {
         name: 'mcpApi',
