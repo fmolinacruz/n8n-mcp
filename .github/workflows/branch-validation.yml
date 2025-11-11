@@ -1,0 +1,278 @@
+name: Branch Validation
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  validate-branch-naming:
+    name: Validate Branch Naming Convention
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get branch name
+        id: branch-name
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BRANCH_NAME="${{ github.head_ref }}"
+          else
+            BRANCH_NAME="${{ github.ref_name }}"
+          fi
+          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "Branch name: $BRANCH_NAME"
+      
+      - name: Validate branch naming convention
+        run: |
+          BRANCH="${{ steps.branch-name.outputs.branch }}"
+          echo "Validating branch: $BRANCH"
+          
+          # Main branch is always allowed
+          if [ "$BRANCH" == "main" ]; then
+            echo "✓ Main branch - validation passed"
+            exit 0
+          fi
+          
+          # Default branch is allowed
+          if [ "$BRANCH" == "${{ github.event.repository.default_branch }}" ]; then
+            echo "✓ Default branch - validation passed"
+            exit 0
+          fi
+          
+          # Valid branch patterns
+          VALID_PATTERNS=(
+            "^feature/.+/.+"
+            "^fix/.+/.+"
+            "^hotfix/.+/.+"
+            "^release/.+"
+            "^client/wdl/.+"
+            "^client/villakuyaya/.+"
+            "^copilot/.+"
+            "^dependabot/.+"
+            "^renovate/.+"
+          )
+          
+          VALID=false
+          for pattern in "${VALID_PATTERNS[@]}"; do
+            if echo "$BRANCH" | grep -qE "$pattern"; then
+              VALID=true
+              echo "✓ Branch matches pattern: $pattern"
+              break
+            fi
+          done
+          
+          if [ "$VALID" == "false" ]; then
+            echo "❌ Invalid branch name: $BRANCH"
+            echo ""
+            echo "Branch names must follow one of these patterns:"
+            echo "  - feature/{scope}/{description}"
+            echo "  - fix/{scope}/{description}"
+            echo "  - hotfix/{scope}/{description}"
+            echo "  - release/{version}"
+            echo "  - client/wdl/{description}"
+            echo "  - client/villakuyaya/{description}"
+            echo ""
+            echo "Examples:"
+            echo "  ✓ feature/auth/add-oauth-support"
+            echo "  ✓ fix/api/handle-timeout-errors"
+            echo "  ✓ client/wdl/custom-workflow"
+            echo "  ✗ my-feature-branch (invalid)"
+            echo "  ✗ test (invalid)"
+            exit 1
+          fi
+
+  validate-client-code-location:
+    name: Validate Client Code Location
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Check for client-specific code on main
+        run: |
+          echo "Checking for client-specific code patterns on main branch..."
+          
+          # Get changed files in the push
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD)
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No changed files detected."
+            exit 0
+          fi
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          echo ""
+          
+          # Patterns that indicate client-specific code
+          CLIENT_PATTERNS=(
+            "wdl"
+            "WDL"
+            "villakuyaya"
+            "Villakuyaya"
+            "VK"
+          )
+          
+          VIOLATIONS=0
+          
+          for file in $CHANGED_FILES; do
+            if [ ! -f "$file" ]; then
+              continue
+            fi
+            
+            # Check file path
+            for pattern in "${CLIENT_PATTERNS[@]}"; do
+              if echo "$file" | grep -qi "$pattern"; then
+                echo "⚠️  Client-specific file path detected: $file"
+                ((VIOLATIONS++))
+              fi
+            done
+            
+            # Check file content for client references
+            CONTENT=$(cat "$file" 2>/dev/null || echo "")
+            for pattern in "${CLIENT_PATTERNS[@]}"; do
+              if echo "$CONTENT" | grep -qi "$pattern"; then
+                echo "⚠️  Client-specific content detected in: $file (pattern: $pattern)"
+                ((VIOLATIONS++))
+                break  # Only report once per file
+              fi
+            done
+          done
+          
+          echo ""
+          echo "Scan complete. Violations found: $VIOLATIONS"
+          
+          if [ $VIOLATIONS -gt 0 ]; then
+            echo ""
+            echo "❌ POLICY VIOLATION: Client-specific code detected on main branch"
+            echo ""
+            echo "Client code must be committed to dedicated branches:"
+            echo "  - WDL code → client/wdl/* branches"
+            echo "  - Villakuyaya code → client/villakuyaya/* branches"
+            echo ""
+            echo "Please move this code to the appropriate client branch."
+            exit 1
+          else
+            echo "✓ No client-specific code detected on main branch"
+          fi
+
+  validate-commit-messages:
+    name: Validate Commit Messages
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Validate commit messages
+        run: |
+          echo "Validating commit messages..."
+          
+          # Get commits in this push
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            # For push events, check last commit
+            BASE_SHA="HEAD~1"
+            HEAD_SHA="HEAD"
+          fi
+          
+          COMMITS=$(git log --format="%H %s" $BASE_SHA..$HEAD_SHA 2>/dev/null || git log --format="%H %s" -1)
+          
+          if [ -z "$COMMITS" ]; then
+            echo "No commits to validate."
+            exit 0
+          fi
+          
+          echo "Commits to validate:"
+          echo "$COMMITS"
+          echo ""
+          
+          VIOLATIONS=0
+          
+          while IFS= read -r commit; do
+            SHA=$(echo "$commit" | awk '{print $1}')
+            MESSAGE=$(echo "$commit" | cut -d' ' -f2-)
+            
+            # Check for minimum length
+            if [ ${#MESSAGE} -lt 10 ]; then
+              echo "❌ Commit $SHA has too short message: '$MESSAGE'"
+              ((VIOLATIONS++))
+              continue
+            fi
+            
+            # Check for blacklisted patterns
+            BLACKLIST=(
+              "^WIP"
+              "^wip"
+              "^fixup"
+              "^test$"
+              "^debug$"
+              "^temp$"
+            )
+            
+            for pattern in "${BLACKLIST[@]}"; do
+              if echo "$MESSAGE" | grep -qE "$pattern"; then
+                echo "⚠️  Commit $SHA has discouraged message: '$MESSAGE'"
+                # Don't fail, just warn
+              fi
+            done
+            
+            echo "✓ Commit $SHA: '$MESSAGE'"
+          done <<< "$COMMITS"
+          
+          if [ $VIOLATIONS -gt 0 ]; then
+            echo ""
+            echo "❌ $VIOLATIONS commit message(s) failed validation"
+            echo ""
+            echo "Commit messages should:"
+            echo "  - Be at least 10 characters long"
+            echo "  - Clearly describe the change"
+            echo "  - Use present tense (e.g., 'Add feature' not 'Added feature')"
+            exit 1
+          else
+            echo ""
+            echo "✓ All commit messages passed validation"
+          fi
+
+  summary:
+    name: Validation Summary
+    runs-on: ubuntu-latest
+    needs: [validate-branch-naming, validate-client-code-location, validate-commit-messages]
+    if: always()
+    
+    steps:
+      - name: Check validation results
+        run: |
+          echo "==================================="
+          echo "Branch Validation Summary"
+          echo "==================================="
+          echo ""
+          echo "Branch naming: ${{ needs.validate-branch-naming.result }}"
+          echo "Client code location: ${{ needs.validate-client-code-location.result }}"
+          echo "Commit messages: ${{ needs.validate-commit-messages.result }}"
+          echo ""
+          
+          if [ "${{ needs.validate-branch-naming.result }}" == "failure" ] || \
+             [ "${{ needs.validate-client-code-location.result }}" == "failure" ] || \
+             [ "${{ needs.validate-commit-messages.result }}" == "failure" ]; then
+            echo "❌ One or more validation checks failed"
+            exit 1
+          else
+            echo "✓ All validation checks passed"
+          fi

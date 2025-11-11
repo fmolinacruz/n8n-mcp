@@ -85,11 +85,47 @@ Before each release or deployment:
 2. **n8n API Access**: The n8n API key provides full access to workflows - protect it carefully
 3. **Database Access**: The SQLite database contains node information but no credentials
 
+## Git Branching Strategy and Security
+
+The project implements a comprehensive branching strategy designed to enhance security and isolate client-specific work:
+
+### Branch Structure
+- **Main branch**: Core n8n-mcp functionality only - NO client code
+- **Client branches**: `client/wdl/*` and `client/villakuyaya/*` for client-specific work
+- **Protection rules**: All branches have automated security checks
+
+### Pre-commit Hooks
+A pre-commit hook is available to prevent secret commits:
+```bash
+./operations/scripts/pre-commit-secret-check.sh --install
+```
+
+This hook scans for:
+- API keys and tokens
+- Passwords and credentials
+- Private keys
+- Hardcoded secrets
+
+### Automated Security Checks
+
+GitHub Actions workflows automatically:
+- Scan all commits for secrets
+- Validate branch naming conventions
+- Check for client code on main branch
+- Run TruffleHog secret detection
+
+### For More Information
+
+- **Branching Strategy**: See [BRANCHING_STRATEGY.md](./operations/docs/BRANCHING_STRATEGY.md)
+- **Implementation Plan**: See [GIT_STRATEGY_EVALUATION.md](./operations/docs/GIT_STRATEGY_EVALUATION.md)
+- **Pre-commit Hook**: See [pre-commit-secret-check.sh](./operations/scripts/pre-commit-secret-check.sh)
+
 ## Tools for Security
 
 - **SecureKeyGuard**: Automated scanning for exposed secrets
 - **npm audit**: Check for vulnerable dependencies
-- **git-secrets**: Prevent committing secrets to git
+- **git-secrets**: Prevent committing secrets to git (also see our pre-commit hook)
 - **dotenv-vault**: Secure environment variable management
+- **TruffleHog**: Secret scanning in CI/CD (integrated in GitHub Actions)
 
 Remember: Security is everyone's responsibility. When in doubt, ask for a security review.
