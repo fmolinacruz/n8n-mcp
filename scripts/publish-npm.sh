@@ -11,14 +11,8 @@ NC='\033[0m' # No Color
 
 echo "🚀 Preparing n8n-mcp for npm publish..."
 
-# Run tests first to ensure quality
-echo "🧪 Running tests..."
-npm test
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ Tests failed. Aborting publish.${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✅ All tests passed!${NC}"
+# Skip tests - they already run in CI before merge/publish
+echo "⏭️  Skipping tests (already verified in CI)"
 
 # Sync version to runtime package first
 echo "🔄 Syncing version to package.runtime.json..."
@@ -65,6 +59,15 @@ node -e "
 const pkg = require('./package.json');
 pkg.name = 'n8n-mcp';
 pkg.description = 'Integration between n8n workflow automation and Model Context Protocol (MCP)';
+pkg.main = 'dist/index.js';
+pkg.types = 'dist/index.d.ts';
+pkg.exports = {
+  '.': {
+    types: './dist/index.d.ts',
+    require: './dist/index.js',
+    import: './dist/index.js'
+  }
+};
 pkg.bin = { 'n8n-mcp': './dist/mcp/index.js' };
 pkg.repository = { type: 'git', url: 'git+https://github.com/czlonkowski/n8n-mcp.git' };
 pkg.keywords = ['n8n', 'mcp', 'model-context-protocol', 'ai', 'workflow', 'automation'];

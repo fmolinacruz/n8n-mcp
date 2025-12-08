@@ -78,33 +78,8 @@ describe('n8nDocumentationToolsFinal', () => {
       });
     });
 
-    describe('list_nodes', () => {
-      const tool = n8nDocumentationToolsFinal.find(t => t.name === 'list_nodes');
-
-      it('should exist', () => {
-        expect(tool).toBeDefined();
-      });
-
-      it('should have correct schema properties', () => {
-        const properties = tool?.inputSchema.properties;
-        expect(properties).toHaveProperty('package');
-        expect(properties).toHaveProperty('category');
-        expect(properties).toHaveProperty('developmentStyle');
-        expect(properties).toHaveProperty('isAITool');
-        expect(properties).toHaveProperty('limit');
-      });
-
-      it('should have correct defaults', () => {
-        expect(tool?.inputSchema.properties.limit.default).toBe(50);
-      });
-
-      it('should have proper enum values', () => {
-        expect(tool?.inputSchema.properties.developmentStyle.enum).toEqual(['declarative', 'programmatic']);
-      });
-    });
-
-    describe('get_node_info', () => {
-      const tool = n8nDocumentationToolsFinal.find(t => t.name === 'get_node_info');
+    describe('get_node', () => {
+      const tool = n8nDocumentationToolsFinal.find(t => t.name === 'get_node');
 
       it('should exist', () => {
         expect(tool).toBeDefined();
@@ -114,8 +89,8 @@ describe('n8nDocumentationToolsFinal', () => {
         expect(tool?.inputSchema.required).toContain('nodeType');
       });
 
-      it('should mention performance implications in description', () => {
-        expect(tool?.description).toMatch(/100KB\+|large|full/i);
+      it('should mention detail levels in description', () => {
+        expect(tool?.description).toMatch(/minimal|standard|full/i);
       });
     });
 
@@ -166,18 +141,23 @@ describe('n8nDocumentationToolsFinal', () => {
       });
     });
 
-    describe('get_templates_for_task', () => {
-      const tool = n8nDocumentationToolsFinal.find(t => t.name === 'get_templates_for_task');
+    describe('search_templates (consolidated)', () => {
+      const tool = n8nDocumentationToolsFinal.find(t => t.name === 'search_templates');
 
       it('should exist', () => {
         expect(tool).toBeDefined();
       });
 
-      it('should have task as required parameter', () => {
-        expect(tool?.inputSchema.required).toContain('task');
+      it('should have searchMode parameter with correct enum values', () => {
+        const searchModeParam = tool?.inputSchema.properties?.searchMode;
+        expect(searchModeParam).toBeDefined();
+        expect(searchModeParam.enum).toEqual(['keyword', 'by_nodes', 'by_task', 'by_metadata']);
+        expect(searchModeParam.default).toBe('keyword');
       });
 
-      it('should have correct task enum values', () => {
+      it('should have task parameter for by_task searchMode', () => {
+        const taskParam = tool?.inputSchema.properties?.task;
+        expect(taskParam).toBeDefined();
         const expectedTasks = [
           'ai_automation',
           'data_sync',
@@ -190,32 +170,37 @@ describe('n8nDocumentationToolsFinal', () => {
           'api_integration',
           'database_operations'
         ];
-        expect(tool?.inputSchema.properties.task.enum).toEqual(expectedTasks);
+        expect(taskParam.enum).toEqual(expectedTasks);
+      });
+
+      it('should have nodeTypes parameter for by_nodes searchMode', () => {
+        const nodeTypesParam = tool?.inputSchema.properties?.nodeTypes;
+        expect(nodeTypesParam).toBeDefined();
+        expect(nodeTypesParam.type).toBe('array');
+        expect(nodeTypesParam.items.type).toBe('string');
       });
     });
   });
 
   describe('Tool Description Quality', () => {
-    it('should have concise descriptions that fit in one line', () => {
+    it('should have concise descriptions that fit within reasonable limits', () => {
       n8nDocumentationToolsFinal.forEach(tool => {
-        // Descriptions should be informative but not overly long
-        expect(tool.description.length).toBeLessThan(300);
+        // Consolidated tools (v2.26.0) may have longer descriptions due to multiple modes
+        // Allow up to 500 chars for tools with mode-based functionality
+        expect(tool.description.length).toBeLessThan(500);
       });
     });
 
     it('should include examples or key information in descriptions', () => {
       const toolsWithExamples = [
-        'list_nodes',
-        'get_node_info',
-        'search_nodes',
-        'get_node_essentials',
-        'get_node_documentation'
+        'get_node',
+        'search_nodes'
       ];
 
       toolsWithExamples.forEach(toolName => {
         const tool = n8nDocumentationToolsFinal.find(t => t.name === toolName);
         // Should include either example usage, format information, or "nodes-base"
-        expect(tool?.description).toMatch(/example|Example|format|Format|nodes-base|Common:/i);
+        expect(tool?.description).toMatch(/example|Example|format|Format|nodes-base|Common:|mode/i);
       });
     });
   });
@@ -250,15 +235,16 @@ describe('n8nDocumentationToolsFinal', () => {
 
   describe('Tool Categories Coverage', () => {
     it('should have tools for all major categories', () => {
+      // Updated for v2.26.0 consolidated tools
       const categories = {
-        discovery: ['list_nodes', 'search_nodes', 'list_ai_tools'],
-        configuration: ['get_node_info', 'get_node_essentials', 'get_node_documentation'],
-        validation: ['validate_node_operation', 'validate_workflow', 'validate_node_minimal'],
-        templates: ['list_tasks', 'get_node_for_task', 'search_templates'],
+        discovery: ['search_nodes'],
+        configuration: ['get_node'],  // get_node now includes docs mode
+        validation: ['validate_node', 'validate_workflow'],  // consolidated validate_node
+        templates: ['search_templates', 'get_template'],  // search_templates now handles all search modes
         documentation: ['tools_documentation']
       };
 
-      Object.entries(categories).forEach(([category, expectedTools]) => {
+      Object.entries(categories).forEach(([_category, expectedTools]) => {
         expectedTools.forEach(toolName => {
           const tool = n8nDocumentationToolsFinal.find(t => t.name === toolName);
           expect(tool).toBeDefined();
@@ -295,25 +281,99 @@ describe('n8nDocumentationToolsFinal', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should handle tools with no parameters', () => {
-      const toolsWithNoParams = ['list_ai_tools', 'get_database_statistics'];
-      
-      toolsWithNoParams.forEach(toolName => {
+    it('should handle tools with optional parameters only', () => {
+      // Tools where all parameters are optional
+      const toolsWithOptionalParams = ['tools_documentation'];
+
+      toolsWithOptionalParams.forEach(toolName => {
         const tool = n8nDocumentationToolsFinal.find(t => t.name === toolName);
         expect(tool).toBeDefined();
-        expect(Object.keys(tool?.inputSchema.properties || {}).length).toBe(0);
+        // These tools have properties but no required array or empty required array
+        expect(tool?.inputSchema.required === undefined || tool?.inputSchema.required?.length === 0).toBe(true);
       });
     });
 
     it('should have array parameters defined correctly', () => {
-      const toolsWithArrays = ['list_node_templates'];
-      
-      toolsWithArrays.forEach(toolName => {
-        const tool = n8nDocumentationToolsFinal.find(t => t.name === toolName);
-        const arrayParam = tool?.inputSchema.properties.nodeTypes;
-        expect(arrayParam?.type).toBe('array');
-        expect(arrayParam?.items).toBeDefined();
-        expect(arrayParam?.items.type).toBe('string');
+      // search_templates now handles nodeTypes for by_nodes mode
+      const tool = n8nDocumentationToolsFinal.find(t => t.name === 'search_templates');
+      const arrayParam = tool?.inputSchema.properties?.nodeTypes;
+      expect(arrayParam?.type).toBe('array');
+      expect(arrayParam?.items).toBeDefined();
+      expect(arrayParam?.items.type).toBe('string');
+    });
+  });
+
+  describe('Consolidated Template Tools (v2.26.0)', () => {
+    describe('get_template', () => {
+      const tool = n8nDocumentationToolsFinal.find(t => t.name === 'get_template');
+
+      it('should exist and support mode parameter', () => {
+        expect(tool).toBeDefined();
+        expect(tool?.description).toContain('mode');
+      });
+
+      it('should have mode parameter with correct values', () => {
+        expect(tool?.inputSchema.properties).toHaveProperty('mode');
+
+        const modeParam = tool?.inputSchema.properties.mode;
+        expect(modeParam.enum).toEqual(['nodes_only', 'structure', 'full']);
+        expect(modeParam.default).toBe('full');
+      });
+
+      it('should require templateId parameter', () => {
+        expect(tool?.inputSchema.required).toContain('templateId');
+      });
+    });
+
+    describe('search_templates (consolidated with searchMode)', () => {
+      const tool = n8nDocumentationToolsFinal.find(t => t.name === 'search_templates');
+
+      it('should exist with searchMode parameter', () => {
+        expect(tool).toBeDefined();
+        expect(tool?.inputSchema.properties).toHaveProperty('searchMode');
+      });
+
+      it('should support metadata filtering via by_metadata searchMode', () => {
+        // These properties are for by_metadata searchMode
+        const props = tool?.inputSchema.properties;
+        expect(props).toHaveProperty('category');
+        expect(props).toHaveProperty('complexity');
+        expect(props?.complexity?.enum).toEqual(['simple', 'medium', 'complex']);
+      });
+
+      it('should have pagination parameters', () => {
+        const limitProp = tool?.inputSchema.properties?.limit;
+        const offsetProp = tool?.inputSchema.properties?.offset;
+
+        expect(limitProp).toBeDefined();
+        expect(limitProp.type).toBe('number');
+        expect(limitProp.default).toBe(20);
+        expect(limitProp.maximum).toBe(100);
+        expect(limitProp.minimum).toBe(1);
+
+        expect(offsetProp).toBeDefined();
+        expect(offsetProp.type).toBe('number');
+        expect(offsetProp.default).toBe(0);
+        expect(offsetProp.minimum).toBe(0);
+      });
+
+      it('should include all search mode-specific properties', () => {
+        const properties = Object.keys(tool?.inputSchema.properties || {});
+        // Consolidated tool includes properties from all former tools
+        const expectedProperties = [
+          'searchMode',  // New mode selector
+          'query',       // For keyword search
+          'nodeTypes',   // For by_nodes search (formerly list_node_templates)
+          'task',        // For by_task search (formerly get_templates_for_task)
+          'category',    // For by_metadata search
+          'complexity',
+          'limit',
+          'offset'
+        ];
+
+        expectedProperties.forEach(prop => {
+          expect(properties).toContain(prop);
+        });
       });
     });
   });

@@ -13,9 +13,10 @@ permissions:
   issues: write
   pull-requests: write
 
-# Prevent concurrent releases
+# Prevent concurrent Docker pushes across all workflows (shared with docker-build.yml)
+# This ensures release.yml and docker-build.yml never push to 'latest' simultaneously
 concurrency:
-  group: release
+  group: docker-push-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -79,53 +80,111 @@ jobs:
             echo "ℹ️ No version change detected"
           fi
 
-  extract-changelog:
-    name: Extract Changelog
+      - name: Validate version against npm registry
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          CURRENT_VERSION="${{ steps.check.outputs.version }}"
+
+          # Get latest version from npm (handle package not found)
+          NPM_VERSION=$(npm view n8n-mcp version 2>/dev/null || echo "0.0.0")
+
+          echo "Current version: $CURRENT_VERSION"
+          echo "NPM registry version: $NPM_VERSION"
+
+          # Check if version already exists in npm
+          if [ "$CURRENT_VERSION" = "$NPM_VERSION" ]; then
+            echo "❌ Error: Version $CURRENT_VERSION already published to npm"
+            echo "Please bump the version in package.json before releasing"
+            exit 1
+          fi
+
+          # Simple semver comparison (assumes format: major.minor.patch)
+          # Compare if current version is greater than npm version
+          if [ "$NPM_VERSION" != "0.0.0" ]; then
+            # Sort versions and check if current is not the highest
+            HIGHEST=$(printf '%s\n%s' "$NPM_VERSION" "$CURRENT_VERSION" | sort -V | tail -n1)
+            if [ "$HIGHEST" != "$CURRENT_VERSION" ]; then
+              echo "❌ Error: Version $CURRENT_VERSION is not greater than npm version $NPM_VERSION"
+              echo "Please use a higher version number"
+              exit 1
+            fi
+          fi
+
+          echo "✅ Version $CURRENT_VERSION is valid (higher than npm version $NPM_VERSION)"
+
+  generate-release-notes:
+    name: Generate Release Notes
     runs-on: ubuntu-latest
     needs: detect-version-change
     if: needs.detect-version-change.outputs.version-changed == 'true'
     outputs:
-      release-notes: ${{ steps.extract.outputs.notes }}
-      has-notes: ${{ steps.extract.outputs.has-notes }}
+      release-notes: ${{ steps.generate.outputs.notes }}
+      has-notes: ${{ steps.generate.outputs.has-notes }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Extract changelog for version
-        id: extract
+        with:
+          fetch-depth: 0  # Need full history for git log
+
+      - name: Generate release notes from commits
+        id: generate
         run: |
-          VERSION="${{ needs.detect-version-change.outputs.new-version }}"
-          CHANGELOG_FILE="docs/CHANGELOG.md"
-          
-          if [ ! -f "$CHANGELOG_FILE" ]; then
-            echo "Changelog file not found at $CHANGELOG_FILE"
-            echo "has-notes=false" >> $GITHUB_OUTPUT
-            echo "notes=No changelog entries found for version $VERSION" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          # Use the extracted changelog script
-          if NOTES=$(node scripts/extract-changelog.js "$VERSION" "$CHANGELOG_FILE" 2>/dev/null); then
+          CURRENT_VERSION="${{ needs.detect-version-change.outputs.new-version }}"
+          CURRENT_TAG="v$CURRENT_VERSION"
+
+          # Get the previous tag (excluding the current tag which doesn't exist yet)
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^$CURRENT_TAG$" | head -1)
+
+          echo "Current version: $CURRENT_VERSION"
+          echo "Current tag: $CURRENT_TAG"
+          echo "Previous tag: $PREVIOUS_TAG"
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "ℹ️ No previous tag found, this might be the first release"
+
+            # Generate initial release notes using script
+            if NOTES=$(node scripts/generate-initial-release-notes.js "$CURRENT_VERSION" 2>/dev/null); then
+              echo "✅ Successfully generated initial release notes for version $CURRENT_VERSION"
+            else
+              echo "⚠️ Could not generate initial release notes for version $CURRENT_VERSION"
+              NOTES="Initial release v$CURRENT_VERSION"
+            fi
+
             echo "has-notes=true" >> $GITHUB_OUTPUT
-            
+
             # Use heredoc to properly handle multiline content
             {
               echo "notes<<EOF"
               echo "$NOTES"
               echo "EOF"
             } >> $GITHUB_OUTPUT
-            
-            echo "✅ Successfully extracted changelog for version $VERSION"
+
           else
-            echo "has-notes=false" >> $GITHUB_OUTPUT
-            echo "notes=No changelog entries found for version $VERSION" >> $GITHUB_OUTPUT
-            echo "⚠️ Could not extract changelog for version $VERSION"
+            echo "✅ Previous tag found: $PREVIOUS_TAG"
+
+            # Generate release notes between tags
+            if NOTES=$(node scripts/generate-release-notes.js "$PREVIOUS_TAG" "HEAD" 2>/dev/null); then
+              echo "has-notes=true" >> $GITHUB_OUTPUT
+
+              # Use heredoc to properly handle multiline content
+              {
+                echo "notes<<EOF"
+                echo "$NOTES"
+                echo "EOF"
+              } >> $GITHUB_OUTPUT
+
+              echo "✅ Successfully generated release notes from $PREVIOUS_TAG to $CURRENT_TAG"
+            else
+              echo "has-notes=false" >> $GITHUB_OUTPUT
+              echo "notes=Failed to generate release notes for version $CURRENT_VERSION" >> $GITHUB_OUTPUT
+              echo "⚠️ Could not generate release notes for version $CURRENT_VERSION"
+            fi
           fi
 
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [detect-version-change, extract-changelog]
+    needs: [detect-version-change, generate-release-notes]
     if: needs.detect-version-change.outputs.version-changed == 'true'
     outputs:
       release-id: ${{ steps.create.outputs.id }}
@@ -156,7 +215,7 @@ jobs:
           cat > release_body.md << 'EOF'
           # Release v${{ needs.detect-version-change.outputs.new-version }}
           
-          ${{ needs.extract-changelog.outputs.release-notes }}
+          ${{ needs.generate-release-notes.outputs.release-notes }}
           
           ---
           
@@ -206,8 +265,8 @@ jobs:
           echo "id=$RELEASE_ID" >> $GITHUB_OUTPUT
           echo "upload_url=https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets{?name,label}" >> $GITHUB_OUTPUT
 
-  build-and-test:
-    name: Build and Test
+  build-and-verify:
+    name: Build and Verify
     runs-on: ubuntu-latest
     needs: detect-version-change
     if: needs.detect-version-change.outputs.version-changed == 'true'
@@ -226,22 +285,28 @@ jobs:
       
       - name: Build project
         run: npm run build
-      
-      - name: Rebuild database
-        run: npm run rebuild
-      
-      - name: Run tests
-        run: npm test
-        env:
-          CI: true
-      
+
+      # Database is already built and committed during development
+      # Rebuilding here causes segfault due to memory pressure (exit code 139)
+      - name: Verify database exists
+        run: |
+          if [ ! -f "data/nodes.db" ]; then
+            echo "❌ Error: data/nodes.db not found"
+            echo "Please run 'npm run rebuild' locally and commit the database"
+            exit 1
+          fi
+          echo "✅ Database exists ($(du -h data/nodes.db | cut -f1))"
+
+      # Skip tests - they already passed in PR before merge
+      # Running them again on the same commit adds no safety, only time (~6-7 min)
+
       - name: Run type checking
         run: npm run typecheck
 
   publish-npm:
     name: Publish to NPM
     runs-on: ubuntu-latest
-    needs: [detect-version-change, build-and-test, create-release]
+    needs: [detect-version-change, build-and-verify, create-release]
     if: needs.detect-version-change.outputs.version-changed == 'true'
     steps:
       - name: Checkout repository
@@ -259,10 +324,16 @@ jobs:
       
       - name: Build project
         run: npm run build
-      
-      - name: Rebuild database
-        run: npm run rebuild
-      
+
+      # Database is already built and committed during development
+      - name: Verify database exists
+        run: |
+          if [ ! -f "data/nodes.db" ]; then
+            echo "❌ Error: data/nodes.db not found"
+            exit 1
+          fi
+          echo "✅ Database exists ($(du -h data/nodes.db | cut -f1))"
+
       - name: Sync runtime version
         run: npm run sync:runtime-version
       
@@ -290,6 +361,15 @@ jobs:
           const pkg = require('./package.json');
           pkg.name = 'n8n-mcp';
           pkg.description = 'Integration between n8n workflow automation and Model Context Protocol (MCP)';
+          pkg.main = 'dist/index.js';
+          pkg.types = 'dist/index.d.ts';
+          pkg.exports = {
+            '.': {
+              types: './dist/index.d.ts',
+              require: './dist/index.js',
+              import: './dist/index.js'
+            }
+          };
           pkg.bin = { 'n8n-mcp': './dist/mcp/index.js' };
           pkg.repository = { type: 'git', url: 'git+https://github.com/czlonkowski/n8n-mcp.git' };
           pkg.keywords = ['n8n', 'mcp', 'model-context-protocol', 'ai', 'workflow', 'automation'];
@@ -324,7 +404,7 @@ jobs:
   build-docker:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
-    needs: [detect-version-change, build-and-test]
+    needs: [detect-version-change, build-and-verify]
     if: needs.detect-version-change.outputs.version-changed == 'true'
     permissions:
       contents: read
@@ -382,7 +462,76 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
+      - name: Verify multi-arch manifest for latest tag
+        run: |
+          echo "Verifying multi-arch manifest for latest tag..."
+
+          # Retry with exponential backoff (registry propagation can take time)
+          MAX_ATTEMPTS=5
+          ATTEMPT=1
+          WAIT_TIME=2
+
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "Attempt $ATTEMPT of $MAX_ATTEMPTS..."
+
+            MANIFEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest 2>&1 || true)
+
+            # Check for both platforms
+            if echo "$MANIFEST" | grep -q "linux/amd64" && echo "$MANIFEST" | grep -q "linux/arm64"; then
+              echo "✅ Multi-arch manifest verified: both amd64 and arm64 present"
+              echo "$MANIFEST"
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "⏳ Registry still propagating, waiting ${WAIT_TIME}s before retry..."
+              sleep $WAIT_TIME
+              WAIT_TIME=$((WAIT_TIME * 2))  # Exponential backoff: 2s, 4s, 8s, 16s
+            fi
+
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "❌ ERROR: Multi-arch manifest incomplete after $MAX_ATTEMPTS attempts!"
+          echo "$MANIFEST"
+          exit 1
+
+      - name: Verify multi-arch manifest for version tag
+        run: |
+          VERSION="${{ needs.detect-version-change.outputs.new-version }}"
+          echo "Verifying multi-arch manifest for version tag :$VERSION (without 'v' prefix)..."
+
+          # Retry with exponential backoff (registry propagation can take time)
+          MAX_ATTEMPTS=5
+          ATTEMPT=1
+          WAIT_TIME=2
+
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "Attempt $ATTEMPT of $MAX_ATTEMPTS..."
+
+            MANIFEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION 2>&1 || true)
+
+            # Check for both platforms
+            if echo "$MANIFEST" | grep -q "linux/amd64" && echo "$MANIFEST" | grep -q "linux/arm64"; then
+              echo "✅ Multi-arch manifest verified for $VERSION: both amd64 and arm64 present"
+              echo "$MANIFEST"
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "⏳ Registry still propagating, waiting ${WAIT_TIME}s before retry..."
+              sleep $WAIT_TIME
+              WAIT_TIME=$((WAIT_TIME * 2))  # Exponential backoff: 2s, 4s, 8s, 16s
+            fi
+
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "❌ ERROR: Multi-arch manifest incomplete for version $VERSION after $MAX_ATTEMPTS attempts!"
+          echo "$MANIFEST"
+          exit 1
+
       - name: Extract metadata for Railway image
         id: meta-railway
         uses: docker/metadata-action@v5

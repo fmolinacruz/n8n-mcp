@@ -232,15 +232,45 @@ class BetterSQLiteAdapter implements DatabaseAdapter {
  */
 class SQLJSAdapter implements DatabaseAdapter {
   private saveTimer: NodeJS.Timeout | null = null;
-  
+  private saveIntervalMs: number;
+  private closed = false; // Prevent multiple close() calls
+
+  // Default save interval: 5 seconds (balance between data safety and performance)
+  // Configurable via SQLJS_SAVE_INTERVAL_MS environment variable
+  //
+  // DATA LOSS WINDOW: Up to 5 seconds of database changes may be lost if process
+  // crashes before scheduleSave() timer fires. This is acceptable because:
+  // 1. close() calls saveToFile() immediately on graceful shutdown
+  // 2. Docker/Kubernetes SIGTERM provides 30s for cleanup (more than enough)
+  // 3. The alternative (100ms interval) caused 2.2GB memory leaks in production
+  // 4. MCP server is primarily read-heavy (writes are rare)
+  private static readonly DEFAULT_SAVE_INTERVAL_MS = 5000;
+
   constructor(private db: any, private dbPath: string) {
-    // Set up auto-save on changes
-    this.scheduleSave();
+    // Read save interval from environment or use default
+    const envInterval = process.env.SQLJS_SAVE_INTERVAL_MS;
+    this.saveIntervalMs = envInterval ? parseInt(envInterval, 10) : SQLJSAdapter.DEFAULT_SAVE_INTERVAL_MS;
+
+    // Validate interval (minimum 100ms, maximum 60000ms = 1 minute)
+    if (isNaN(this.saveIntervalMs) || this.saveIntervalMs < 100 || this.saveIntervalMs > 60000) {
+      logger.warn(
+        `Invalid SQLJS_SAVE_INTERVAL_MS value: ${envInterval} (must be 100-60000ms), ` +
+        `using default ${SQLJSAdapter.DEFAULT_SAVE_INTERVAL_MS}ms`
+      );
+      this.saveIntervalMs = SQLJSAdapter.DEFAULT_SAVE_INTERVAL_MS;
+    }
+
+    logger.debug(`SQLJSAdapter initialized with save interval: ${this.saveIntervalMs}ms`);
+
+    // NOTE: No initial save scheduled here (optimization)
+    // Database is either:
+    // 1. Loaded from existing file (already persisted), or
+    // 2. New database (will be saved on first write operation)
   }
   
   prepare(sql: string): PreparedStatement {
     const stmt = this.db.prepare(sql);
-    this.scheduleSave();
+    // Don't schedule save on prepare - only on actual writes (via SQLJSStatement.run())
     return new SQLJSStatement(stmt, () => this.scheduleSave());
   }
   
@@ -250,11 +280,18 @@ class SQLJSAdapter implements DatabaseAdapter {
   }
   
   close(): void {
+    if (this.closed) {
+      logger.debug('SQLJSAdapter already closed, skipping');
+      return;
+    }
+
     this.saveToFile();
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
+      this.saveTimer = null;
     }
     this.db.close();
+    this.closed = true;
   }
   
   pragma(key: string, value?: any): any {
@@ -301,19 +338,32 @@ class SQLJSAdapter implements DatabaseAdapter {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
     }
-    
-    // Save after 100ms of inactivity
+
+    // Save after configured interval of inactivity (default: 5000ms)
+    // This debouncing reduces memory churn from frequent buffer allocations
+    //
+    // NOTE: Under constant write load, saves may be delayed until writes stop.
+    // This is acceptable because:
+    // 1. MCP server is primarily read-heavy (node lookups, searches)
+    // 2. Writes are rare (only during database rebuilds)
+    // 3. close() saves immediately on shutdown, flushing any pending changes
     this.saveTimer = setTimeout(() => {
       this.saveToFile();
-    }, 100);
+    }, this.saveIntervalMs);
   }
   
   private saveToFile(): void {
     try {
+      // Export database to Uint8Array (2-5MB typical)
       const data = this.db.export();
-      const buffer = Buffer.from(data);
-      fsSync.writeFileSync(this.dbPath, buffer);
+
+      // Write directly without Buffer.from() copy (saves 50% memory allocation)
+      // writeFileSync accepts Uint8Array directly, no need for Buffer conversion
+      fsSync.writeFileSync(this.dbPath, data);
       logger.debug(`Database saved to ${this.dbPath}`);
+
+      // Note: 'data' reference is automatically cleared when function exits
+      // V8 GC will reclaim the Uint8Array once it's no longer referenced
     } catch (error) {
       logger.error('Failed to save database', error);
     }
@@ -376,52 +426,71 @@ class SQLJSStatement implements PreparedStatement {
   constructor(private stmt: any, private onModify: () => void) {}
   
   run(...params: any[]): RunResult {
-    if (params.length > 0) {
-      this.bindParams(params);
-      this.stmt.bind(this.boundParams);
+    try {
+      if (params.length > 0) {
+        this.bindParams(params);
+        if (this.boundParams) {
+          this.stmt.bind(this.boundParams);
+        }
+      }
+      
+      this.stmt.run();
+      this.onModify();
+      
+      // sql.js doesn't provide changes/lastInsertRowid easily
+      return {
+        changes: 1, // Assume success means 1 change
+        lastInsertRowid: 0
+      };
+    } catch (error) {
+      this.stmt.reset();
+      throw error;
     }
-    
-    this.stmt.run();
-    this.onModify();
-    
-    // sql.js doesn't provide changes/lastInsertRowid easily
-    return {
-      changes: 0,
-      lastInsertRowid: 0
-    };
   }
   
   get(...params: any[]): any {
-    if (params.length > 0) {
-      this.bindParams(params);
-    }
-    
-    this.stmt.bind(this.boundParams);
-    
-    if (this.stmt.step()) {
-      const result = this.stmt.getAsObject();
+    try {
+      if (params.length > 0) {
+        this.bindParams(params);
+        if (this.boundParams) {
+          this.stmt.bind(this.boundParams);
+        }
+      }
+      
+      if (this.stmt.step()) {
+        const result = this.stmt.getAsObject();
+        this.stmt.reset();
+        return this.convertIntegerColumns(result);
+      }
+      
       this.stmt.reset();
-      return this.convertIntegerColumns(result);
+      return undefined;
+    } catch (error) {
+      this.stmt.reset();
+      throw error;
     }
-    
-    this.stmt.reset();
-    return undefined;
   }
   
   all(...params: any[]): any[] {
-    if (params.length > 0) {
-      this.bindParams(params);
+    try {
+      if (params.length > 0) {
+        this.bindParams(params);
+        if (this.boundParams) {
+          this.stmt.bind(this.boundParams);
+        }
+      }
+      
+      const results: any[] = [];
+      while (this.stmt.step()) {
+        results.push(this.convertIntegerColumns(this.stmt.getAsObject()));
+      }
+      
+      this.stmt.reset();
+      return results;
+    } catch (error) {
+      this.stmt.reset();
+      throw error;
     }
-    
-    this.stmt.bind(this.boundParams);
-    
-    const results: any[] = [];
-    while (this.stmt.step()) {
-      results.push(this.convertIntegerColumns(this.stmt.getAsObject()));
-    }
-    
-    this.stmt.reset();
-    return results;
   }
   
   iterate(...params: any[]): IterableIterator<any> {
@@ -455,12 +524,18 @@ class SQLJSStatement implements PreparedStatement {
   }
   
   private bindParams(params: any[]): void {
-    if (params.length === 1 && typeof params[0] === 'object' && !Array.isArray(params[0])) {
+    if (params.length === 0) {
+      this.boundParams = null;
+      return;
+    }
+    
+    if (params.length === 1 && typeof params[0] === 'object' && !Array.isArray(params[0]) && params[0] !== null) {
       // Named parameters passed as object
       this.boundParams = params[0];
     } else {
       // Positional parameters - sql.js uses array for positional
-      this.boundParams = params;
+      // Filter out undefined values that might cause issues
+      this.boundParams = params.map(p => p === undefined ? null : p);
     }
   }
   

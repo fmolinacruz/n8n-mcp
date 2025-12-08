@@ -9,6 +9,7 @@ import { n8nDocumentationToolsFinal } from './mcp/tools';
 import { n8nManagementTools } from './mcp/tools-n8n-manager';
 import { N8NDocumentationMCPServer } from './mcp/server';
 import { logger } from './utils/logger';
+import { AuthManager } from './utils/auth';
 import { PROJECT_VERSION } from './utils/version';
 import { isN8nApiConfigured } from './config/n8n-api';
 import dotenv from 'dotenv';
@@ -21,6 +22,17 @@ import {
 } from './utils/protocol-version';
 
 dotenv.config();
+
+/**
+ * MCP tool response format with optional structured content
+ */
+interface MCPToolResponse {
+  content: Array<{
+    type: 'text';
+    text: string;
+  }>;
+  structuredContent?: unknown;
+}
 
 let expressServer: any;
 let authToken: string | null = null;
@@ -308,15 +320,19 @@ export async function startFixedHTTPServer() {
     
     // Extract token and trim whitespace
     const token = authHeader.slice(7).trim();
-    
-    // Check if token matches
-    if (token !== authToken) {
-      logger.warn('Authentication failed: Invalid token', { 
+
+    // SECURITY: Use timing-safe comparison to prevent timing attacks
+    // See: https://github.com/czlonkowski/n8n-mcp/issues/265 (CRITICAL-02)
+    const isValidToken = authToken &&
+      AuthManager.timingSafeCompare(token, authToken);
+
+    if (!isValidToken) {
+      logger.warn('Authentication failed: Invalid token', {
         ip: req.ip,
         userAgent: req.get('user-agent'),
         reason: 'invalid_token'
       });
-      res.status(401).json({ 
+      res.status(401).json({
         jsonrpc: '2.0',
         error: {
           code: -32001,
@@ -396,19 +412,46 @@ export async function startFixedHTTPServer() {
               // Delegate to the MCP server
               const toolName = jsonRpcRequest.params?.name;
               const toolArgs = jsonRpcRequest.params?.arguments || {};
-              
+
               try {
                 const result = await mcpServer.executeTool(toolName, toolArgs);
+
+                // Convert result to JSON text for content field
+                let responseText = JSON.stringify(result, null, 2);
+
+                // Build MCP-compliant response with structuredContent for validation tools
+                const mcpResult: MCPToolResponse = {
+                  content: [
+                    {
+                      type: 'text',
+                      text: responseText
+                    }
+                  ]
+                };
+
+                // Add structuredContent for validation tools (they have outputSchema)
+                // Apply 1MB safety limit to prevent memory issues (matches STDIO server behavior)
+                if (toolName.startsWith('validate_')) {
+                  const resultSize = responseText.length;
+
+                  if (resultSize > 1000000) {
+                    // Response is too large - truncate and warn
+                    logger.warn(
+                      `Validation tool ${toolName} response is very large (${resultSize} chars). ` +
+                      `Truncating for HTTP transport safety.`
+                    );
+                    mcpResult.content[0].text = responseText.substring(0, 999000) +
+                      '\n\n[Response truncated due to size limits]';
+                    // Don't include structuredContent for truncated responses
+                  } else {
+                    // Normal case - include structured content for MCP protocol compliance
+                    mcpResult.structuredContent = result;
+                  }
+                }
+
                 response = {
                   jsonrpc: '2.0',
-                  result: {
-                    content: [
-                      {
-                        type: 'text',
-                        text: JSON.stringify(result, null, 2)
-                      }
-                    ]
-                  },
+                  result: mcpResult,
                   id: jsonRpcRequest.id
                 };
               } catch (error) {
