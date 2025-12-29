@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.telemetry = exports.TelemetryManager = void 0;
 const supabase_js_1 = require("@supabase/supabase-js");
@@ -121,36 +88,6 @@ class TelemetryManager {
             this.performanceMonitor.endOperation('trackWorkflowCreation');
         }
     }
-    async trackWorkflowMutation(data) {
-        this.ensureInitialized();
-        if (!this.isEnabled()) {
-            logger_1.logger.debug('Telemetry disabled, skipping mutation tracking');
-            return;
-        }
-        this.performanceMonitor.startOperation('trackWorkflowMutation');
-        try {
-            const { mutationTracker } = await Promise.resolve().then(() => __importStar(require('./mutation-tracker.js')));
-            const userId = this.configManager.getUserId();
-            const mutationRecord = await mutationTracker.processMutation(data, userId);
-            if (mutationRecord) {
-                this.eventTracker.enqueueMutation(mutationRecord);
-                const queueSize = this.eventTracker.getMutationQueueSize();
-                if (queueSize >= 2) {
-                    await this.flushMutations();
-                }
-            }
-        }
-        catch (error) {
-            const telemetryError = error instanceof telemetry_error_1.TelemetryError
-                ? error
-                : new telemetry_error_1.TelemetryError(telemetry_error_1.TelemetryErrorType.UNKNOWN_ERROR, 'Failed to track workflow mutation', { error: String(error) });
-            this.errorAggregator.record(telemetryError);
-            logger_1.logger.debug('Error tracking workflow mutation:', error);
-        }
-        finally {
-            this.performanceMonitor.endOperation('trackWorkflowMutation');
-        }
-    }
     trackError(errorType, context, toolName, errorMessage) {
         this.ensureInitialized();
         this.eventTracker.trackError(errorType, context, toolName, errorMessage);
@@ -185,12 +122,10 @@ class TelemetryManager {
         this.performanceMonitor.startOperation('flush');
         const events = this.eventTracker.getEventQueue();
         const workflows = this.eventTracker.getWorkflowQueue();
-        const mutations = this.eventTracker.getMutationQueue();
         this.eventTracker.clearEventQueue();
         this.eventTracker.clearWorkflowQueue();
-        this.eventTracker.clearMutationQueue();
         try {
-            await this.batchProcessor.flush(events, workflows, mutations);
+            await this.batchProcessor.flush(events, workflows);
         }
         catch (error) {
             const telemetryError = error instanceof telemetry_error_1.TelemetryError
@@ -204,16 +139,6 @@ class TelemetryManager {
             if (duration > 100) {
                 logger_1.logger.debug(`Telemetry flush took ${duration.toFixed(2)}ms`);
             }
-        }
-    }
-    async flushMutations() {
-        this.ensureInitialized();
-        if (!this.isEnabled() || !this.supabase)
-            return;
-        const mutations = this.eventTracker.getMutationQueue();
-        this.eventTracker.clearMutationQueue();
-        if (mutations.length > 0) {
-            await this.batchProcessor.flush([], [], mutations);
         }
     }
     isEnabled() {

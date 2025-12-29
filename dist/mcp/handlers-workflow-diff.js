@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleUpdatePartialWorkflow = handleUpdatePartialWorkflow;
 const zod_1 = require("zod");
@@ -41,15 +8,6 @@ const n8n_errors_1 = require("../utils/n8n-errors");
 const logger_1 = require("../utils/logger");
 const n8n_validation_1 = require("../services/n8n-validation");
 const workflow_versioning_service_1 = require("../services/workflow-versioning-service");
-const workflow_validator_1 = require("../services/workflow-validator");
-const enhanced_config_validator_1 = require("../services/enhanced-config-validator");
-let cachedValidator = null;
-function getValidator(repository) {
-    if (!cachedValidator) {
-        cachedValidator = new workflow_validator_1.WorkflowValidator(repository, enhanced_config_validator_1.EnhancedConfigValidator);
-    }
-    return cachedValidator;
-}
 const workflowDiffSchema = zod_1.z.object({
     id: zod_1.z.string(),
     operations: zod_1.z.array(zod_1.z.object({
@@ -80,14 +38,8 @@ const workflowDiffSchema = zod_1.z.object({
     validateOnly: zod_1.z.boolean().optional(),
     continueOnError: zod_1.z.boolean().optional(),
     createBackup: zod_1.z.boolean().optional(),
-    intent: zod_1.z.string().optional(),
 });
 async function handleUpdatePartialWorkflow(args, repository, context) {
-    const startTime = Date.now();
-    const sessionId = `mutation_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    let workflowBefore = null;
-    let validationBefore = null;
-    let validationAfter = null;
     try {
         if (process.env.DEBUG_MCP === 'true') {
             logger_1.logger.debug('Workflow diff request received', {
@@ -108,23 +60,6 @@ async function handleUpdatePartialWorkflow(args, repository, context) {
         let workflow;
         try {
             workflow = await client.getWorkflow(input.id);
-            workflowBefore = JSON.parse(JSON.stringify(workflow));
-            try {
-                const validator = getValidator(repository);
-                validationBefore = await validator.validateWorkflow(workflowBefore, {
-                    validateNodes: true,
-                    validateConnections: true,
-                    validateExpressions: true,
-                    profile: 'runtime'
-                });
-            }
-            catch (validationError) {
-                logger_1.logger.debug('Pre-mutation validation failed (non-blocking):', validationError);
-                validationBefore = {
-                    valid: false,
-                    errors: [{ type: 'validation_error', message: 'Validation failed' }]
-                };
-            }
         }
         catch (error) {
             if (error instanceof n8n_errors_1.N8nApiError) {
@@ -261,22 +196,6 @@ async function handleUpdatePartialWorkflow(args, repository, context) {
             const updatedWorkflow = await client.updateWorkflow(input.id, diffResult.workflow);
             let finalWorkflow = updatedWorkflow;
             let activationMessage = '';
-            try {
-                const validator = getValidator(repository);
-                validationAfter = await validator.validateWorkflow(finalWorkflow, {
-                    validateNodes: true,
-                    validateConnections: true,
-                    validateExpressions: true,
-                    profile: 'runtime'
-                });
-            }
-            catch (validationError) {
-                logger_1.logger.debug('Post-mutation validation failed (non-blocking):', validationError);
-                validationAfter = {
-                    valid: false,
-                    errors: [{ type: 'validation_error', message: 'Validation failed' }]
-                };
-            }
             if (diffResult.shouldActivate) {
                 try {
                     finalWorkflow = await client.activateWorkflow(input.id);
@@ -311,22 +230,6 @@ async function handleUpdatePartialWorkflow(args, repository, context) {
                     };
                 }
             }
-            if (workflowBefore && !input.validateOnly) {
-                trackWorkflowMutation({
-                    sessionId,
-                    toolName: 'n8n_update_partial_workflow',
-                    userIntent: input.intent || 'Partial workflow update',
-                    operations: input.operations,
-                    workflowBefore,
-                    workflowAfter: finalWorkflow,
-                    validationBefore,
-                    validationAfter,
-                    mutationSuccess: true,
-                    durationMs: Date.now() - startTime,
-                }).catch(err => {
-                    logger_1.logger.debug('Failed to track mutation telemetry:', err);
-                });
-            }
             return {
                 success: true,
                 data: finalWorkflow,
@@ -344,23 +247,6 @@ async function handleUpdatePartialWorkflow(args, repository, context) {
             };
         }
         catch (error) {
-            if (workflowBefore && !input.validateOnly) {
-                trackWorkflowMutation({
-                    sessionId,
-                    toolName: 'n8n_update_partial_workflow',
-                    userIntent: input.intent || 'Partial workflow update',
-                    operations: input.operations,
-                    workflowBefore,
-                    workflowAfter: workflowBefore,
-                    validationBefore,
-                    validationAfter: validationBefore,
-                    mutationSuccess: false,
-                    mutationError: error instanceof Error ? error.message : 'Unknown error',
-                    durationMs: Date.now() - startTime,
-                }).catch(err => {
-                    logger_1.logger.warn('Failed to track mutation telemetry for failed operation:', err);
-                });
-            }
             if (error instanceof n8n_errors_1.N8nApiError) {
                 return {
                     success: false,
@@ -385,75 +271,6 @@ async function handleUpdatePartialWorkflow(args, repository, context) {
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error occurred'
         };
-    }
-}
-function inferIntentFromOperations(operations) {
-    if (!operations || operations.length === 0) {
-        return 'Partial workflow update';
-    }
-    const opTypes = operations.map((op) => op.type);
-    const opCount = operations.length;
-    if (opCount === 1) {
-        const op = operations[0];
-        switch (op.type) {
-            case 'addNode':
-                return `Add ${op.node?.type || 'node'}`;
-            case 'removeNode':
-                return `Remove node ${op.nodeName || op.nodeId || ''}`.trim();
-            case 'updateNode':
-                return `Update node ${op.nodeName || op.nodeId || ''}`.trim();
-            case 'addConnection':
-                return `Connect ${op.source || 'node'} to ${op.target || 'node'}`;
-            case 'removeConnection':
-                return `Disconnect ${op.source || 'node'} from ${op.target || 'node'}`;
-            case 'rewireConnection':
-                return `Rewire ${op.source || 'node'} from ${op.from || ''} to ${op.to || ''}`.trim();
-            case 'updateName':
-                return `Rename workflow to "${op.name || ''}"`;
-            case 'activateWorkflow':
-                return 'Activate workflow';
-            case 'deactivateWorkflow':
-                return 'Deactivate workflow';
-            default:
-                return `Workflow ${op.type}`;
-        }
-    }
-    const typeSet = new Set(opTypes);
-    const summary = [];
-    if (typeSet.has('addNode')) {
-        const count = opTypes.filter((t) => t === 'addNode').length;
-        summary.push(`add ${count} node${count > 1 ? 's' : ''}`);
-    }
-    if (typeSet.has('removeNode')) {
-        const count = opTypes.filter((t) => t === 'removeNode').length;
-        summary.push(`remove ${count} node${count > 1 ? 's' : ''}`);
-    }
-    if (typeSet.has('updateNode')) {
-        const count = opTypes.filter((t) => t === 'updateNode').length;
-        summary.push(`update ${count} node${count > 1 ? 's' : ''}`);
-    }
-    if (typeSet.has('addConnection') || typeSet.has('rewireConnection')) {
-        summary.push('modify connections');
-    }
-    if (typeSet.has('updateName') || typeSet.has('updateSettings')) {
-        summary.push('update metadata');
-    }
-    return summary.length > 0
-        ? `Workflow update: ${summary.join(', ')}`
-        : `Workflow update: ${opCount} operations`;
-}
-async function trackWorkflowMutation(data) {
-    try {
-        if (!data.userIntent ||
-            data.userIntent === 'Partial workflow update' ||
-            data.userIntent.length < 10) {
-            data.userIntent = inferIntentFromOperations(data.operations);
-        }
-        const { telemetry } = await Promise.resolve().then(() => __importStar(require('../telemetry/telemetry-manager.js')));
-        await telemetry.trackWorkflowMutation(data);
-    }
-    catch (error) {
-        logger_1.logger.debug('Telemetry tracking failed:', error);
     }
 }
 //# sourceMappingURL=handlers-workflow-diff.js.map

@@ -59,7 +59,7 @@ exports.toolsDocumentationDoc = {
             'Not all internal functions are documented',
             'Special topics (code guides) require exact names'
         ],
-        relatedTools: ['n8n_health_check for verifying API connection', 'search_templates for workflow examples', 'search_nodes for finding nodes']
+        relatedTools: ['n8n_list_available_tools for dynamic tool discovery', 'list_tasks for common configurations', 'get_database_statistics to verify MCP connection']
     }
 };
 //# sourceMappingURL=tools-documentation.js.map

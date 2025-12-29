@@ -4,29 +4,12 @@ exports.TelemetryBatchProcessor = void 0;
 const telemetry_types_1 = require("./telemetry-types");
 const telemetry_error_1 = require("./telemetry-error");
 const logger_1 = require("../utils/logger");
-function toSnakeCase(obj) {
-    if (obj === null || obj === undefined)
-        return obj;
-    if (Array.isArray(obj))
-        return obj.map(toSnakeCase);
-    if (typeof obj !== 'object')
-        return obj;
-    const result = {};
-    for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
-            const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-            result[snakeKey] = toSnakeCase(obj[key]);
-        }
-    }
-    return result;
-}
 class TelemetryBatchProcessor {
     constructor(supabase, isEnabled) {
         this.supabase = supabase;
         this.isEnabled = isEnabled;
         this.isFlushingEvents = false;
         this.isFlushingWorkflows = false;
-        this.isFlushingMutations = false;
         this.metrics = {
             eventsTracked: 0,
             eventsDropped: 0,
@@ -68,12 +51,12 @@ class TelemetryBatchProcessor {
         }
         logger_1.logger.debug('Telemetry batch processor stopped');
     }
-    async flush(events, workflows, mutations) {
+    async flush(events, workflows) {
         if (!this.isEnabled() || !this.supabase)
             return;
         if (!this.circuitBreaker.shouldAllow()) {
             logger_1.logger.debug('Circuit breaker open - skipping flush');
-            this.metrics.eventsDropped += (events?.length || 0) + (workflows?.length || 0) + (mutations?.length || 0);
+            this.metrics.eventsDropped += (events?.length || 0) + (workflows?.length || 0);
             return;
         }
         const startTime = Date.now();
@@ -83,9 +66,6 @@ class TelemetryBatchProcessor {
         }
         if (workflows && workflows.length > 0) {
             hasErrors = !(await this.flushWorkflows(workflows)) || hasErrors;
-        }
-        if (mutations && mutations.length > 0) {
-            hasErrors = !(await this.flushMutations(mutations)) || hasErrors;
         }
         const flushTime = Date.now() - startTime;
         this.recordFlushTime(flushTime);
@@ -175,55 +155,6 @@ class TelemetryBatchProcessor {
         }
         finally {
             this.isFlushingWorkflows = false;
-        }
-    }
-    async flushMutations(mutations) {
-        if (this.isFlushingMutations || mutations.length === 0)
-            return true;
-        this.isFlushingMutations = true;
-        try {
-            const batches = this.createBatches(mutations, telemetry_types_1.TELEMETRY_CONFIG.MAX_BATCH_SIZE);
-            for (const batch of batches) {
-                const result = await this.executeWithRetry(async () => {
-                    const snakeCaseBatch = batch.map(mutation => toSnakeCase(mutation));
-                    const { error } = await this.supabase
-                        .from('workflow_mutations')
-                        .insert(snakeCaseBatch);
-                    if (error) {
-                        logger_1.logger.error('Mutation insert error details:', {
-                            code: error.code,
-                            message: error.message,
-                            details: error.details,
-                            hint: error.hint,
-                            fullError: String(error)
-                        });
-                        throw error;
-                    }
-                    logger_1.logger.debug(`Flushed batch of ${batch.length} workflow mutations`);
-                    return true;
-                }, 'Flush workflow mutations');
-                if (result) {
-                    this.metrics.eventsTracked += batch.length;
-                    this.metrics.batchesSent++;
-                }
-                else {
-                    this.metrics.eventsFailed += batch.length;
-                    this.metrics.batchesFailed++;
-                    this.addToDeadLetterQueue(batch);
-                    return false;
-                }
-            }
-            return true;
-        }
-        catch (error) {
-            logger_1.logger.error('Failed to flush mutations with details:', {
-                errorMsg: error instanceof Error ? error.message : String(error),
-                errorType: error instanceof Error ? error.constructor.name : typeof error
-            });
-            throw new telemetry_error_1.TelemetryError(telemetry_error_1.TelemetryErrorType.NETWORK_ERROR, 'Failed to flush workflow mutations', { error: error instanceof Error ? error.message : String(error) }, true);
-        }
-        finally {
-            this.isFlushingMutations = false;
         }
     }
     async executeWithRetry(operation, operationName) {

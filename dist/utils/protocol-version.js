@@ -1,15 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SUPPORTED_VERSIONS = exports.N8N_PROTOCOL_VERSION = exports.STANDARD_PROTOCOL_VERSION = void 0;
+exports.SUPPORTED_VERSIONS = exports.N8N_PROTOCOL_VERSION = exports.PREVIOUS_PROTOCOL_VERSION = exports.STANDARD_PROTOCOL_VERSION = void 0;
 exports.isN8nClient = isN8nClient;
 exports.negotiateProtocolVersion = negotiateProtocolVersion;
 exports.isVersionSupported = isVersionSupported;
 exports.getCompatibleVersion = getCompatibleVersion;
 exports.logProtocolNegotiation = logProtocolNegotiation;
-exports.STANDARD_PROTOCOL_VERSION = '2025-03-26';
+exports.STANDARD_PROTOCOL_VERSION = '2025-06-18';
+exports.PREVIOUS_PROTOCOL_VERSION = '2025-03-26';
 exports.N8N_PROTOCOL_VERSION = '2024-11-05';
 exports.SUPPORTED_VERSIONS = [
     exports.STANDARD_PROTOCOL_VERSION,
+    exports.PREVIOUS_PROTOCOL_VERSION,
     exports.N8N_PROTOCOL_VERSION,
     '2024-06-25',
 ];

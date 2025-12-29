@@ -67,7 +67,7 @@ Requires N8N_API_URL and N8N_API_KEY environment variables to be configured.`,
             'Profile affects validation time - strict is slower but more thorough',
             'Expression validation may flag working but non-standard syntax'
         ],
-        relatedTools: ['validate_workflow', 'n8n_get_workflow', 'n8n_health_check', 'n8n_autofix_workflow']
+        relatedTools: ['validate_workflow', 'n8n_get_workflow', 'validate_workflow_expressions', 'n8n_health_check', 'n8n_autofix_workflow']
     }
 };
 //# sourceMappingURL=n8n-validate-workflow.js.map

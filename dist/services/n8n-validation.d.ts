@@ -19,12 +19,11 @@ export declare const workflowNodeSchema: z.ZodObject<{
     executeOnce: z.ZodOptional<z.ZodBoolean>;
 }, "strip", z.ZodTypeAny, {
     type: string;
-    id: string;
     name: string;
+    id: string;
     typeVersion: number;
     position: [number, number];
     parameters: Record<string, unknown>;
-    credentials?: Record<string, unknown> | undefined;
     retryOnFail?: boolean | undefined;
     maxTries?: number | undefined;
     waitBetweenTries?: number | undefined;
@@ -34,14 +33,14 @@ export declare const workflowNodeSchema: z.ZodObject<{
     disabled?: boolean | undefined;
     notes?: string | undefined;
     notesInFlow?: boolean | undefined;
+    credentials?: Record<string, unknown> | undefined;
 }, {
     type: string;
-    id: string;
     name: string;
+    id: string;
     typeVersion: number;
     position: [number, number];
     parameters: Record<string, unknown>;
-    credentials?: Record<string, unknown> | undefined;
     retryOnFail?: boolean | undefined;
     maxTries?: number | undefined;
     waitBetweenTries?: number | undefined;
@@ -51,6 +50,7 @@ export declare const workflowNodeSchema: z.ZodObject<{
     disabled?: boolean | undefined;
     notes?: string | undefined;
     notesInFlow?: boolean | undefined;
+    credentials?: Record<string, unknown> | undefined;
 }>;
 export declare const workflowConnectionSchema: z.ZodRecord<z.ZodString, z.ZodObject<{
     main: z.ZodOptional<z.ZodArray<z.ZodArray<z.ZodObject<{
@@ -227,7 +227,6 @@ export declare const workflowSettingsSchema: z.ZodObject<{
     executionTimeout: z.ZodOptional<z.ZodNumber>;
     errorWorkflow: z.ZodOptional<z.ZodString>;
     callerPolicy: z.ZodOptional<z.ZodEnum<["any", "workflowsFromSameOwner", "workflowsFromAList"]>>;
-    availableInMCP: z.ZodOptional<z.ZodBoolean>;
 }, "strip", z.ZodTypeAny, {
     executionOrder: "v0" | "v1";
     saveDataErrorExecution: "all" | "none";
@@ -238,7 +237,6 @@ export declare const workflowSettingsSchema: z.ZodObject<{
     executionTimeout?: number | undefined;
     errorWorkflow?: string | undefined;
     callerPolicy?: "any" | "workflowsFromSameOwner" | "workflowsFromAList" | undefined;
-    availableInMCP?: boolean | undefined;
 }, {
     timezone?: string | undefined;
     executionOrder?: "v0" | "v1" | undefined;
@@ -249,7 +247,6 @@ export declare const workflowSettingsSchema: z.ZodObject<{
     executionTimeout?: number | undefined;
     errorWorkflow?: string | undefined;
     callerPolicy?: "any" | "workflowsFromSameOwner" | "workflowsFromAList" | undefined;
-    availableInMCP?: boolean | undefined;
 }>;
 export declare const defaultWorkflowSettings: {
     executionOrder: "v1";

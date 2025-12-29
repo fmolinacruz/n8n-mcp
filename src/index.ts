@@ -18,9 +18,6 @@ export {
   validateInstanceContext,
   isInstanceContext
 } from './types/instance-context';
-export type {
-  SessionState
-} from './types/session-state';
 
 // Re-export MCP SDK types for convenience
 export type {

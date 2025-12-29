@@ -757,8 +757,7 @@ export class WorkflowDiffEngine {
     const { sourceOutput, sourceIndex } = this.resolveSmartParameters(workflow, operation);
 
     // Use nullish coalescing to properly handle explicit 0 values
-    // Default targetInput to sourceOutput to preserve connection type for AI connections (ai_tool, ai_memory, etc.)
-    const targetInput = operation.targetInput ?? sourceOutput;
+    const targetInput = operation.targetInput ?? 'main';
     const targetIndex = operation.targetIndex ?? 0;
 
     // Initialize source node connections object
@@ -862,14 +861,10 @@ export class WorkflowDiffEngine {
 
   // Metadata operation appliers
   private applyUpdateSettings(workflow: Workflow, operation: UpdateSettingsOperation): void {
-    // Only create/update settings if operation provides actual properties
-    // This prevents creating empty settings objects that would be rejected by n8n API
-    if (operation.settings && Object.keys(operation.settings).length > 0) {
-      if (!workflow.settings) {
-        workflow.settings = {};
-      }
-      Object.assign(workflow.settings, operation.settings);
+    if (!workflow.settings) {
+      workflow.settings = {};
     }
+    Object.assign(workflow.settings, operation.settings);
   }
 
   private applyUpdateName(workflow: Workflow, operation: UpdateNameOperation): void {

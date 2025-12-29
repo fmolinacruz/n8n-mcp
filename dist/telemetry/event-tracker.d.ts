@@ -1,4 +1,4 @@
-import { TelemetryEvent, WorkflowTelemetry, WorkflowMutationRecord } from './telemetry-types';
+import { TelemetryEvent, WorkflowTelemetry } from './telemetry-types';
 export declare class TelemetryEventTracker {
     private getUserId;
     private isEnabled;
@@ -6,7 +6,6 @@ export declare class TelemetryEventTracker {
     private validator;
     private eventQueue;
     private workflowQueue;
-    private mutationQueue;
     private previousTool?;
     private previousToolTimestamp;
     private performanceMetrics;
@@ -30,12 +29,8 @@ export declare class TelemetryEventTracker {
     updateToolSequence(toolName: string): void;
     getEventQueue(): TelemetryEvent[];
     getWorkflowQueue(): WorkflowTelemetry[];
-    getMutationQueue(): WorkflowMutationRecord[];
     clearEventQueue(): void;
     clearWorkflowQueue(): void;
-    clearMutationQueue(): void;
-    enqueueMutation(mutation: WorkflowMutationRecord): void;
-    getMutationQueueSize(): number;
     getStats(): {
         rateLimiter: {
             currentEvents: number;
@@ -56,7 +51,6 @@ export declare class TelemetryEventTracker {
         };
         eventQueueSize: number;
         workflowQueueSize: number;
-        mutationQueueSize: number;
         performanceMetrics: Record<string, any>;
     };
     private recordPerformanceMetric;

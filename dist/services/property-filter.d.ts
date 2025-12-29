@@ -12,11 +12,6 @@ export interface SimplifiedProperty {
     placeholder?: string;
     showWhen?: Record<string, any>;
     usageHint?: string;
-    expectedFormat?: {
-        structure: Record<string, string>;
-        modes?: string[];
-        example: Record<string, any>;
-    };
 }
 export interface EssentialConfig {
     required: string[];

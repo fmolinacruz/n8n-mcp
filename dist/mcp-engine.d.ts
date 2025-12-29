@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import { InstanceContext } from './types/instance-context';
-import { SessionState } from './types/session-state';
 export interface EngineHealth {
     status: 'healthy' | 'unhealthy';
     uptime: number;
@@ -27,8 +26,6 @@ export declare class N8NMCPEngine {
         sessionId?: string;
         age?: number;
     };
-    exportSessionState(): SessionState[];
-    restoreSessionState(sessions: SessionState[]): number;
     shutdown(): Promise<void>;
     start(): Promise<void>;
 }

@@ -234,6 +234,9 @@ class WorkflowValidator {
                     }
                 }
                 const normalizedType = node_type_normalizer_1.NodeTypeNormalizer.normalizeToFullForm(node.type);
+                if (normalizedType !== node.type) {
+                    node.type = normalizedType;
+                }
                 const nodeInfo = this.nodeRepository.getNode(normalizedType);
                 if (!nodeInfo) {
                     const suggestions = await this.similarityService.findSimilarNodes(node.type, 3);
@@ -429,13 +432,11 @@ class WorkflowValidator {
                     result.statistics.invalidConnections++;
                     return;
                 }
-                const isSplitInBatches = sourceNode && (sourceNode.type === 'n8n-nodes-base.splitInBatches' ||
-                    sourceNode.type === 'nodes-base.splitInBatches');
-                if (isSplitInBatches) {
+                if (sourceNode && sourceNode.type === 'nodes-base.splitInBatches') {
                     this.validateSplitInBatchesConnection(sourceNode, outputIndex, connection, nodeMap, result);
                 }
                 if (connection.node === sourceName) {
-                    if (sourceNode && !isSplitInBatches) {
+                    if (sourceNode && sourceNode.type !== 'nodes-base.splitInBatches') {
                         result.warnings.push({
                             type: 'warning',
                             message: `Node "${sourceName}" has a self-referencing connection. This can cause infinite loops.`
@@ -756,13 +757,8 @@ class WorkflowValidator {
             n.type.includes('langchain.agent'));
         if (aiAgentNodes.length > 0) {
             for (const agentNode of aiAgentNodes) {
-                const hasToolConnected = Object.values(workflow.connections).some(sourceOutputs => {
-                    const aiToolConnections = sourceOutputs.ai_tool;
-                    if (!aiToolConnections)
-                        return false;
-                    return aiToolConnections.flat().some(conn => conn && conn.node === agentNode.name);
-                });
-                if (!hasToolConnected) {
+                const connections = workflow.connections[agentNode.name];
+                if (!connections?.ai_tool || connections.ai_tool.flat().filter(c => c).length === 0) {
                     result.warnings.push({
                         type: 'warning',
                         nodeId: agentNode.id,

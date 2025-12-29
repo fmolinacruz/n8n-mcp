@@ -3,13 +3,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.n8nFriendlyDescriptions = void 0;
 exports.makeToolsN8nFriendly = makeToolsN8nFriendly;
 exports.n8nFriendlyDescriptions = {
-    validate_node: {
-        description: 'Validate n8n node config. Pass nodeType (string) and config (object). Use mode="full" for comprehensive validation, mode="minimal" for quick check. Example: {"nodeType": "nodes-base.slack", "config": {"resource": "channel", "operation": "create"}}',
+    validate_node_operation: {
+        description: 'Validate n8n node. ALWAYS pass two parameters: nodeType (string) and config (object). Example call: {"nodeType": "nodes-base.slack", "config": {"resource": "channel", "operation": "create"}}',
         params: {
             nodeType: 'String value like "nodes-base.slack"',
             config: 'Object value like {"resource": "channel", "operation": "create"} or empty object {}',
-            mode: 'Optional string: "full" (default) or "minimal"',
             profile: 'Optional string: "minimal" or "runtime" or "ai-friendly" or "strict"'
+        }
+    },
+    validate_node_minimal: {
+        description: 'Check required fields. MUST pass: nodeType (string) and config (object). Example: {"nodeType": "nodes-base.webhook", "config": {}}',
+        params: {
+            nodeType: 'String like "nodes-base.webhook"',
+            config: 'Object, use {} for empty'
         }
     },
     search_nodes: {
@@ -19,44 +25,80 @@ exports.n8nFriendlyDescriptions = {
             limit: 'Optional number, default 20'
         }
     },
-    get_node: {
-        description: 'Get node info with multiple modes. Pass nodeType (string). Use mode="info" for config, mode="docs" for documentation, mode="search_properties" with propertyQuery for finding fields. Example: {"nodeType": "nodes-base.httpRequest", "detail": "standard"}',
+    get_node_info: {
+        description: 'Get node details. Pass nodeType (string). Example: {"nodeType": "nodes-base.httpRequest"}',
         params: {
-            nodeType: 'String with prefix like "nodes-base.httpRequest"',
-            mode: 'Optional string: "info" (default), "docs", "search_properties", "versions", "compare", "breaking", "migrations"',
-            detail: 'Optional string: "minimal", "standard" (default), "full"',
-            propertyQuery: 'For mode="search_properties": search term like "auth"'
+            nodeType: 'String with prefix like "nodes-base.httpRequest"'
+        }
+    },
+    get_node_essentials: {
+        description: 'Get node basics. Pass nodeType (string). Example: {"nodeType": "nodes-base.slack"}',
+        params: {
+            nodeType: 'String with prefix like "nodes-base.slack"'
+        }
+    },
+    get_node_for_task: {
+        description: 'Find node for task. Pass task (string). Example: {"task": "send_http_request"}',
+        params: {
+            task: 'String task name like "send_http_request"'
+        }
+    },
+    list_tasks: {
+        description: 'List tasks by category. Pass category (string). Example: {"category": "HTTP/API"}',
+        params: {
+            category: 'String: "HTTP/API" or "Webhooks" or "Database" or "AI/LangChain" or "Data Processing" or "Communication"'
         }
     },
     validate_workflow: {
-        description: 'Validate workflow structure, connections, and expressions. Pass workflow object. MUST have: {"workflow": {"nodes": [array of node objects], "connections": {object with node connections}}}. Each node needs: name, type, typeVersion, position.',
+        description: 'Validate workflow. Pass workflow object. MUST have: {"workflow": {"nodes": [array of node objects], "connections": {object with node connections}}}. Each node needs: name, type, typeVersion, position.',
         params: {
             workflow: 'Object with two required fields: nodes (array) and connections (object). Example: {"nodes": [{"name": "Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [250, 300], "parameters": {}}], "connections": {}}',
-            options: 'Optional object. Example: {"validateNodes": true, "validateConnections": true, "validateExpressions": true, "profile": "runtime"}'
+            options: 'Optional object. Example: {"validateNodes": true, "profile": "runtime"}'
+        }
+    },
+    validate_workflow_connections: {
+        description: 'Validate workflow connections only. Pass workflow object. Example: {"workflow": {"nodes": [...], "connections": {}}}',
+        params: {
+            workflow: 'Object with nodes array and connections object. Minimal example: {"nodes": [{"name": "Webhook"}], "connections": {}}'
+        }
+    },
+    validate_workflow_expressions: {
+        description: 'Validate n8n expressions in workflow. Pass workflow object. Example: {"workflow": {"nodes": [...], "connections": {}}}',
+        params: {
+            workflow: 'Object with nodes array and connections object containing n8n expressions like {{ $json.data }}'
+        }
+    },
+    get_property_dependencies: {
+        description: 'Get field dependencies. Pass nodeType (string) and optional config (object). Example: {"nodeType": "nodes-base.httpRequest", "config": {}}',
+        params: {
+            nodeType: 'String like "nodes-base.httpRequest"',
+            config: 'Optional object, use {} for empty'
+        }
+    },
+    get_node_as_tool_info: {
+        description: 'Get AI tool usage. Pass nodeType (string). Example: {"nodeType": "nodes-base.slack"}',
+        params: {
+            nodeType: 'String with prefix like "nodes-base.slack"'
         }
     },
     search_templates: {
-        description: 'Search workflow templates with multiple modes. Use searchMode="keyword" for text search, searchMode="by_nodes" to find by node types, searchMode="by_task" for task-based templates, searchMode="by_metadata" for filtering. Example: {"query": "chatbot"} or {"searchMode": "by_task", "task": "webhook_processing"}',
+        description: 'Search workflow templates. Pass query (string). Example: {"query": "chatbot"}',
         params: {
-            query: 'For searchMode="keyword": string keyword like "chatbot"',
-            searchMode: 'Optional: "keyword" (default), "by_nodes", "by_task", "by_metadata"',
-            nodeTypes: 'For searchMode="by_nodes": array like ["n8n-nodes-base.httpRequest"]',
-            task: 'For searchMode="by_task": task like "webhook_processing", "ai_automation"',
+            query: 'String keyword like "chatbot" or "webhook"',
             limit: 'Optional number, default 20'
         }
     },
     get_template: {
         description: 'Get template by ID. Pass templateId (number). Example: {"templateId": 1234}',
         params: {
-            templateId: 'Number ID like 1234',
-            mode: 'Optional: "full" (default), "nodes_only", "structure"'
+            templateId: 'Number ID like 1234'
         }
     },
     tools_documentation: {
         description: 'Get tool docs. Pass optional depth (string). Example: {"depth": "essentials"} or {}',
         params: {
-            depth: 'Optional string: "essentials" (default) or "full"',
-            topic: 'Optional string tool name like "search_nodes"'
+            depth: 'Optional string: "essentials" or "overview" or "detailed"',
+            topic: 'Optional string topic name'
         }
     }
 };

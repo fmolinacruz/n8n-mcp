@@ -41,14 +41,10 @@ const axios_1 = __importDefault(require("axios"));
 const logger_1 = require("../utils/logger");
 const n8n_errors_1 = require("../utils/n8n-errors");
 const n8n_validation_1 = require("./n8n-validation");
-const n8n_version_1 = require("./n8n-version");
 class N8nApiClient {
     constructor(config) {
-        this.versionInfo = null;
-        this.versionPromise = null;
         const { baseUrl, apiKey, timeout = 30000, maxRetries = 3 } = config;
         this.maxRetries = maxRetries;
-        this.baseUrl = baseUrl;
         const apiUrl = baseUrl.endsWith('/api/v1')
             ? baseUrl
             : `${baseUrl.replace(/\/$/, '')}/api/v1`;
@@ -79,32 +75,6 @@ class N8nApiClient {
             return Promise.reject(n8nError);
         });
     }
-    async getVersion() {
-        if (this.versionInfo) {
-            return this.versionInfo;
-        }
-        if (this.versionPromise) {
-            return this.versionPromise;
-        }
-        this.versionPromise = this.fetchVersionOnce();
-        try {
-            this.versionInfo = await this.versionPromise;
-            return this.versionInfo;
-        }
-        finally {
-            this.versionPromise = null;
-        }
-    }
-    async fetchVersionOnce() {
-        let version = (0, n8n_version_1.getCachedVersion)(this.baseUrl);
-        if (!version) {
-            version = await (0, n8n_version_1.fetchN8nVersion)(this.baseUrl);
-        }
-        return version;
-    }
-    getCachedVersionInfo() {
-        return this.versionInfo;
-    }
     async healthCheck() {
         try {
             const baseUrl = this.client.defaults.baseURL || '';
@@ -113,11 +83,9 @@ class N8nApiClient {
                 timeout: 5000,
                 validateStatus: (status) => status < 500
             });
-            const versionInfo = await this.getVersion();
             if (response.status === 200 && response.data?.status === 'ok') {
                 return {
                     status: 'ok',
-                    n8nVersion: versionInfo?.version,
                     features: {}
                 };
             }
@@ -126,10 +94,8 @@ class N8nApiClient {
         catch (error) {
             try {
                 await this.client.get('/workflows', { params: { limit: 1 } });
-                const versionInfo = await this.getVersion();
                 return {
                     status: 'ok',
-                    n8nVersion: versionInfo?.version,
                     features: {}
                 };
             }
@@ -160,14 +126,6 @@ class N8nApiClient {
     async updateWorkflow(id, workflow) {
         try {
             const cleanedWorkflow = (0, n8n_validation_1.cleanWorkflowForUpdate)(workflow);
-            const versionInfo = await this.getVersion();
-            if (versionInfo) {
-                logger_1.logger.debug(`Updating workflow with n8n version ${versionInfo.version}`);
-                cleanedWorkflow.settings = (0, n8n_version_1.cleanSettingsForVersion)(cleanedWorkflow.settings, versionInfo);
-            }
-            else {
-                logger_1.logger.warn('Could not determine n8n version, sending all known settings properties');
-            }
             try {
                 const response = await this.client.put(`/workflows/${id}`, cleanedWorkflow);
                 return response.data;

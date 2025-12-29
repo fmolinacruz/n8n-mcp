@@ -19,8 +19,14 @@ export interface ProtocolNegotiationResult {
 
 /**
  * Standard MCP protocol version (latest)
+ * Updated to 2025-06-18 for Claude Desktop compatibility
  */
-export const STANDARD_PROTOCOL_VERSION = '2025-03-26';
+export const STANDARD_PROTOCOL_VERSION = '2025-06-18';
+
+/**
+ * Previous standard protocol version (for backwards compatibility)
+ */
+export const PREVIOUS_PROTOCOL_VERSION = '2025-03-26';
 
 /**
  * n8n specific protocol version (what n8n expects)
@@ -31,9 +37,10 @@ export const N8N_PROTOCOL_VERSION = '2024-11-05';
  * Supported protocol versions in order of preference
  */
 export const SUPPORTED_VERSIONS = [
-  STANDARD_PROTOCOL_VERSION,
-  N8N_PROTOCOL_VERSION,
-  '2024-06-25', // Older fallback
+  STANDARD_PROTOCOL_VERSION,      // 2025-06-18 (Claude Desktop latest)
+  PREVIOUS_PROTOCOL_VERSION,      // 2025-03-26
+  N8N_PROTOCOL_VERSION,           // 2024-11-05 (n8n compatibility)
+  '2024-06-25',                   // Older fallback
 ];
 
 /**

@@ -58,7 +58,6 @@ exports.workflowSettingsSchema = zod_1.z.object({
     executionTimeout: zod_1.z.number().optional(),
     errorWorkflow: zod_1.z.string().optional(),
     callerPolicy: zod_1.z.enum(['any', 'workflowsFromSameOwner', 'workflowsFromAList']).optional(),
-    availableInMCP: zod_1.z.boolean().optional(),
 });
 exports.defaultWorkflowSettings = {
     executionOrder: 'v1',
@@ -78,14 +77,14 @@ function validateWorkflowSettings(settings) {
 }
 function cleanWorkflowForCreate(workflow) {
     const { id, createdAt, updatedAt, versionId, meta, active, tags, ...cleanedWorkflow } = workflow;
-    if (!cleanedWorkflow.settings || Object.keys(cleanedWorkflow.settings).length === 0) {
+    if (!cleanedWorkflow.settings) {
         cleanedWorkflow.settings = exports.defaultWorkflowSettings;
     }
     return cleanedWorkflow;
 }
 function cleanWorkflowForUpdate(workflow) {
-    const { id, createdAt, updatedAt, versionId, versionCounter, meta, staticData, pinData, tags, description, isArchived, usedCredentials, sharedWithProjects, triggerCount, shared, active, activeVersionId, activeVersion, ...cleanedWorkflow } = workflow;
-    const ALL_KNOWN_SETTINGS_PROPERTIES = new Set([
+    const { id, createdAt, updatedAt, versionId, versionCounter, meta, staticData, pinData, tags, isArchived, usedCredentials, sharedWithProjects, triggerCount, shared, active, ...cleanedWorkflow } = workflow;
+    const safeSettingsProperties = [
         'saveExecutionProgress',
         'saveManualExecutions',
         'saveDataErrorExecution',
@@ -93,28 +92,19 @@ function cleanWorkflowForUpdate(workflow) {
         'executionTimeout',
         'errorWorkflow',
         'timezone',
-        'executionOrder',
-        'callerPolicy',
-        'callerIds',
-        'timeSavedPerExecution',
-        'availableInMCP',
-    ]);
+        'executionOrder'
+    ];
     if (cleanedWorkflow.settings && typeof cleanedWorkflow.settings === 'object') {
         const filteredSettings = {};
-        for (const [key, value] of Object.entries(cleanedWorkflow.settings)) {
-            if (ALL_KNOWN_SETTINGS_PROPERTIES.has(key)) {
-                filteredSettings[key] = value;
+        for (const key of safeSettingsProperties) {
+            if (key in cleanedWorkflow.settings) {
+                filteredSettings[key] = cleanedWorkflow.settings[key];
             }
         }
-        if (Object.keys(filteredSettings).length > 0) {
-            cleanedWorkflow.settings = filteredSettings;
-        }
-        else {
-            cleanedWorkflow.settings = { executionOrder: 'v1' };
-        }
+        cleanedWorkflow.settings = filteredSettings;
     }
     else {
-        cleanedWorkflow.settings = { executionOrder: 'v1' };
+        cleanedWorkflow.settings = {};
     }
     return cleanedWorkflow;
 }

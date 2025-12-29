@@ -13,7 +13,6 @@ export declare class TelemetryManager {
     private initialize;
     trackToolUsage(toolName: string, success: boolean, duration?: number): void;
     trackWorkflowCreation(workflow: any, validationPassed: boolean): Promise<void>;
-    trackWorkflowMutation(data: any): Promise<void>;
     trackError(errorType: string, context: string, toolName?: string, errorMessage?: string): void;
     trackEvent(eventName: string, properties: Record<string, any>): void;
     trackSessionStart(): void;
@@ -23,7 +22,6 @@ export declare class TelemetryManager {
     trackNodeConfiguration(nodeType: string, propertiesSet: number, usedDefaults: boolean): void;
     trackPerformanceMetric(operation: string, duration: number, metadata?: Record<string, any>): void;
     flush(): Promise<void>;
-    flushMutations(): Promise<void>;
     private isEnabled;
     disable(): void;
     enable(): void;
@@ -51,7 +49,6 @@ export declare class TelemetryManager {
             };
             eventQueueSize: number;
             workflowQueueSize: number;
-            mutationQueueSize: number;
             performanceMetrics: Record<string, any>;
         };
         processing: import("./telemetry-types").TelemetryMetrics & {

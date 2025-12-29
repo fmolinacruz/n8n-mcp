@@ -33,7 +33,7 @@ class N8NMCPEngine {
                     total: Math.round(memoryUsage.heapTotal / 1024 / 1024),
                     unit: 'MB'
                 },
-                version: '2.24.1'
+                version: '2.3.2'
             };
         }
         catch (error) {
@@ -43,26 +43,12 @@ class N8NMCPEngine {
                 uptime: 0,
                 sessionActive: false,
                 memoryUsage: { used: 0, total: 0, unit: 'MB' },
-                version: '2.24.1'
+                version: '2.3.2'
             };
         }
     }
     getSessionInfo() {
         return this.server.getSessionInfo();
-    }
-    exportSessionState() {
-        if (!this.server) {
-            logger_1.logger.warn('Cannot export sessions: server not initialized');
-            return [];
-        }
-        return this.server.exportSessionState();
-    }
-    restoreSessionState(sessions) {
-        if (!this.server) {
-            logger_1.logger.warn('Cannot restore sessions: server not initialized');
-            return 0;
-        }
-        return this.server.restoreSessionState(sessions);
     }
     async shutdown() {
         logger_1.logger.info('Shutting down N8N MCP Engine...');

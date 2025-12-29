@@ -383,10 +383,13 @@ export class WorkflowValidator {
             });
           }
         }
-        // Normalize node type for database lookup (DO NOT mutate the original workflow)
-        // The normalizer converts to short form (nodes-base.*) for database queries,
-        // but n8n API requires full form (n8n-nodes-base.*). Never modify the input workflow.
+        // Normalize node type FIRST to ensure consistent lookup
         const normalizedType = NodeTypeNormalizer.normalizeToFullForm(node.type);
+
+        // Update node type in place if it was normalized
+        if (normalizedType !== node.type) {
+          node.type = normalizedType;
+        }
 
         // Get node definition using normalized type (needed for typeVersion validation)
         const nodeInfo = this.nodeRepository.getNode(normalizedType);
@@ -681,12 +684,7 @@ export class WorkflowValidator {
         }
 
         // Special validation for SplitInBatches node
-        // Check both full form (n8n-nodes-base.*) and short form (nodes-base.*)
-        const isSplitInBatches = sourceNode && (
-          sourceNode.type === 'n8n-nodes-base.splitInBatches' ||
-          sourceNode.type === 'nodes-base.splitInBatches'
-        );
-        if (isSplitInBatches) {
+        if (sourceNode && sourceNode.type === 'nodes-base.splitInBatches') {
           this.validateSplitInBatchesConnection(
             sourceNode,
             outputIndex,
@@ -698,8 +696,8 @@ export class WorkflowValidator {
 
         // Check for self-referencing connections
         if (connection.node === sourceName) {
-          // This is only a warning for non-loop nodes (not SplitInBatches)
-          if (sourceNode && !isSplitInBatches) {
+          // This is only a warning for non-loop nodes
+          if (sourceNode && sourceNode.type !== 'nodes-base.splitInBatches') {
             result.warnings.push({
               type: 'warning',
               message: `Node "${sourceName}" has a self-referencing connection. This can cause infinite loops.`
@@ -1137,23 +1135,16 @@ export class WorkflowValidator {
     }
 
     // Check for AI Agent workflows
-    const aiAgentNodes = workflow.nodes.filter(n =>
-      n.type.toLowerCase().includes('agent') ||
+    const aiAgentNodes = workflow.nodes.filter(n => 
+      n.type.toLowerCase().includes('agent') || 
       n.type.includes('langchain.agent')
     );
-
+    
     if (aiAgentNodes.length > 0) {
       // Check if AI agents have tools connected
-      // Tools connect TO the agent, so we need to find connections where the target is the agent
       for (const agentNode of aiAgentNodes) {
-        // Search all connections to find ones targeting this agent via ai_tool
-        const hasToolConnected = Object.values(workflow.connections).some(sourceOutputs => {
-          const aiToolConnections = sourceOutputs.ai_tool;
-          if (!aiToolConnections) return false;
-          return aiToolConnections.flat().some(conn => conn && conn.node === agentNode.name);
-        });
-
-        if (!hasToolConnected) {
+        const connections = workflow.connections[agentNode.name];
+        if (!connections?.ai_tool || connections.ai_tool.flat().filter(c => c).length === 0) {
           result.warnings.push({
             type: 'warning',
             nodeId: agentNode.id,

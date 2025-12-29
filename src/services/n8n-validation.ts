@@ -62,7 +62,6 @@ export const workflowSettingsSchema = z.object({
   executionTimeout: z.number().optional(),
   errorWorkflow: z.string().optional(),
   callerPolicy: z.enum(['any', 'workflowsFromSameOwner', 'workflowsFromAList']).optional(),
-  availableInMCP: z.boolean().optional(),
 });
 
 // Default settings for workflow creation
@@ -104,8 +103,7 @@ export function cleanWorkflowForCreate(workflow: Partial<Workflow>): Partial<Wor
   } = workflow;
 
   // Ensure settings are present with defaults
-  // Treat empty settings object {} the same as missing settings
-  if (!cleanedWorkflow.settings || Object.keys(cleanedWorkflow.settings).length === 0) {
+  if (!cleanedWorkflow.settings) {
     cleanedWorkflow.settings = defaultWorkflowSettings;
   }
 
@@ -116,47 +114,63 @@ export function cleanWorkflowForCreate(workflow: Partial<Workflow>): Partial<Wor
  * Clean workflow data for update operations.
  *
  * This function removes read-only and computed fields that should not be sent
- * in API update requests. It filters settings to known API-accepted properties
- * to prevent "additional properties" errors.
+ * in API update requests. It does NOT add any default values or new fields.
  *
- * NOTE: This function filters settings to ALL known properties (12 total).
- * For version-specific filtering (compatibility with older n8n versions),
- * use N8nApiClient.updateWorkflow() which automatically detects the n8n version
- * and filters settings accordingly.
+ * Note: Unlike cleanWorkflowForCreate, this function does not add default settings.
+ * The n8n API will reject update requests that include properties not present in
+ * the original workflow ("settings must NOT have additional properties" error).
+ *
+ * Settings are filtered to only include whitelisted properties to prevent API
+ * errors when workflows from n8n contain UI-only or deprecated properties.
  *
  * @param workflow - The workflow object to clean
  * @returns A cleaned partial workflow suitable for API updates
  */
 export function cleanWorkflowForUpdate(workflow: Workflow): Partial<Workflow> {
   const {
-    // Remove ALL read-only/computed fields (comprehensive list)
+    // Remove read-only/computed fields
     id,
     createdAt,
     updatedAt,
     versionId,
-    versionCounter,
+    versionCounter, // Added: n8n 1.118.1+ returns this but rejects it in updates
     meta,
     staticData,
+    // Remove fields that cause API errors
     pinData,
     tags,
-    description,
+    // Remove additional fields that n8n API doesn't accept
     isArchived,
     usedCredentials,
     sharedWithProjects,
     triggerCount,
     shared,
     active,
-    activeVersionId,
-    activeVersion,
     // Keep everything else
     ...cleanedWorkflow
   } = workflow as any;
 
-  // ALL known settings properties accepted by n8n Public API (as of n8n 1.119.0+)
-  // This list is the UNION of all properties ever accepted by any n8n version
-  // Version-specific filtering is handled by N8nApiClient.updateWorkflow()
-  const ALL_KNOWN_SETTINGS_PROPERTIES = new Set([
-    // Core properties (all versions)
+  // CRITICAL FIX for Issue #248:
+  // The n8n API has version-specific behavior for settings in workflow updates:
+  //
+  // PROBLEM:
+  // - Some versions reject updates with settings properties (community forum reports)
+  // - Cloud versions REQUIRE settings property to be present (n8n.estyl.team)
+  // - Properties like callerPolicy cause "additional properties" errors
+  //
+  // SOLUTION:
+  // - Filter settings to only include whitelisted properties (OpenAPI spec)
+  // - If no settings provided, use empty object {} for safety
+  // - Empty object satisfies "required property" validation (cloud API)
+  // - Whitelisted properties prevent "additional properties" errors
+  //
+  // References:
+  // - https://community.n8n.io/t/api-workflow-update-endpoint-doesnt-support-setting-callerpolicy/161916
+  // - OpenAPI spec: workflowSettings schema
+  // - Tested on n8n.estyl.team (cloud) and localhost (self-hosted)
+
+  // Whitelisted settings properties from n8n OpenAPI spec
+  const safeSettingsProperties = [
     'saveExecutionProgress',
     'saveManualExecutions',
     'saveDataErrorExecution',
@@ -164,34 +178,21 @@ export function cleanWorkflowForUpdate(workflow: Workflow): Partial<Workflow> {
     'executionTimeout',
     'errorWorkflow',
     'timezone',
-    // Added in n8n 1.37.0
-    'executionOrder',
-    // Added in n8n 1.119.0
-    'callerPolicy',
-    'callerIds',
-    'timeSavedPerExecution',
-    'availableInMCP',
-  ]);
+    'executionOrder'
+  ];
 
   if (cleanedWorkflow.settings && typeof cleanedWorkflow.settings === 'object') {
-    // Filter to only known properties (security + prevent garbage)
-    const filteredSettings: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(cleanedWorkflow.settings)) {
-      if (ALL_KNOWN_SETTINGS_PROPERTIES.has(key)) {
-        filteredSettings[key] = value;
+    // Filter to only safe properties
+    const filteredSettings: any = {};
+    for (const key of safeSettingsProperties) {
+      if (key in cleanedWorkflow.settings) {
+        filteredSettings[key] = (cleanedWorkflow.settings as any)[key];
       }
     }
-    // If no valid properties remain after filtering, use minimal defaults
-    // Issue #431: n8n API rejects empty settings objects
-    if (Object.keys(filteredSettings).length > 0) {
-      cleanedWorkflow.settings = filteredSettings;
-    } else {
-      // Minimal valid settings - executionOrder v1 is the modern default
-      cleanedWorkflow.settings = { executionOrder: 'v1' as const };
-    }
+    cleanedWorkflow.settings = filteredSettings;
   } else {
-    // No settings provided - use minimal valid defaults
-    cleanedWorkflow.settings = { executionOrder: 'v1' as const };
+    // No settings provided - use empty object for safety
+    cleanedWorkflow.settings = {};
   }
 
   return cleanedWorkflow;

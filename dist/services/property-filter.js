@@ -97,15 +97,6 @@ class PropertyFilter {
                 };
             });
         }
-        if (prop.type === 'resourceLocator') {
-            const modes = prop.modes?.map((m) => m.name || m) || ['list', 'id'];
-            const defaultValue = prop.default?.value || 'your-resource-id';
-            simplified.expectedFormat = {
-                structure: { mode: 'string', value: 'string' },
-                modes,
-                example: { mode: 'id', value: defaultValue }
-            };
-        }
         if (prop.displayOptions?.show) {
             const conditions = Object.keys(prop.displayOptions.show);
             if (conditions.length <= 2) {

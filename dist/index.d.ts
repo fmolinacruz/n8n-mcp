@@ -4,7 +4,6 @@ export { ConsoleManager } from './utils/console-manager';
 export { N8NDocumentationMCPServer } from './mcp/server';
 export type { InstanceContext } from './types/instance-context';
 export { validateInstanceContext, isInstanceContext } from './types/instance-context';
-export type { SessionState } from './types/session-state';
 export type { Tool, CallToolResult, ListToolsResult } from '@modelcontextprotocol/sdk/types.js';
 import N8NMCPEngine from './mcp-engine';
 export default N8NMCPEngine;

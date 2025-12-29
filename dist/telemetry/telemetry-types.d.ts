@@ -99,5 +99,4 @@ export interface TelemetryErrorContext {
     timestamp: number;
     retryable: boolean;
 }
-export type { WorkflowMutationRecord, WorkflowMutationData } from './mutation-types.js';
 //# sourceMappingURL=telemetry-types.d.ts.map

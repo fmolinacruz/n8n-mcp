@@ -35,9 +35,11 @@ class ExpressionValidator {
         if (openBrackets !== closeBrackets) {
             errors.push('Unmatched expression brackets {{ }}');
         }
-        const nestedPattern = /\{\{[^}]*\{\{/;
-        if (nestedPattern.test(expression)) {
-            errors.push('Nested expressions are not supported (expression inside another expression)');
+        if (expression.includes('{{') && expression.includes('{{', expression.indexOf('{{') + 2)) {
+            const match = expression.match(/\{\{.*\{\{/);
+            if (match) {
+                errors.push('Nested expressions are not supported');
+            }
         }
         const emptyExpressionPattern = /\{\{\s*\}\}/;
         if (emptyExpressionPattern.test(expression)) {

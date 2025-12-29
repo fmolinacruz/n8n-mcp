@@ -14,7 +14,6 @@ export declare class N8NDocumentationMCPServer {
     private earlyLogger;
     private disabledToolsCache;
     constructor(instanceContext?: InstanceContext, earlyLogger?: EarlyErrorLogger);
-    close(): Promise<void>;
     private initializeDatabase;
     private initializeInMemorySchema;
     private parseSQLStatements;
@@ -42,16 +41,6 @@ export declare class N8NDocumentationMCPServer {
     private getNodeDocumentation;
     private getDatabaseStatistics;
     private getNodeEssentials;
-    private getNode;
-    private handleInfoMode;
-    private handleVersionMode;
-    private getVersionSummary;
-    private getVersionHistory;
-    private compareVersions;
-    private getBreakingChanges;
-    private getMigrations;
-    private enrichPropertyWithTypeInfo;
-    private enrichPropertiesWithTypeInfo;
     private searchNodeProperties;
     private getPropertyValue;
     private listTasks;

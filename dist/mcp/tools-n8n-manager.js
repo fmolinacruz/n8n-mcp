@@ -64,19 +64,55 @@ exports.n8nManagementTools = [
     },
     {
         name: 'n8n_get_workflow',
-        description: `Get workflow by ID with different detail levels. Use mode='full' for complete workflow, 'details' for metadata+stats, 'structure' for nodes/connections only, 'minimal' for id/name/active/tags.`,
+        description: `Get a workflow by ID. Returns the complete workflow including nodes, connections, and settings.`,
         inputSchema: {
             type: 'object',
             properties: {
                 id: {
                     type: 'string',
                     description: 'Workflow ID'
-                },
-                mode: {
+                }
+            },
+            required: ['id']
+        }
+    },
+    {
+        name: 'n8n_get_workflow_details',
+        description: `Get workflow details with metadata, version, execution stats. More info than get_workflow.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                id: {
                     type: 'string',
-                    enum: ['full', 'details', 'structure', 'minimal'],
-                    default: 'full',
-                    description: 'Detail level: full=complete workflow, details=full+execution stats, structure=nodes/connections topology, minimal=metadata only'
+                    description: 'Workflow ID'
+                }
+            },
+            required: ['id']
+        }
+    },
+    {
+        name: 'n8n_get_workflow_structure',
+        description: `Get workflow structure: nodes and connections only. No parameter details.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                id: {
+                    type: 'string',
+                    description: 'Workflow ID'
+                }
+            },
+            required: ['id']
+        }
+    },
+    {
+        name: 'n8n_get_workflow_minimal',
+        description: `Get minimal info: ID, name, active status, tags. Fast for listings.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                id: {
+                    type: 'string',
+                    description: 'Workflow ID'
                 }
             },
             required: ['id']
@@ -268,134 +304,151 @@ exports.n8nManagementTools = [
         }
     },
     {
-        name: 'n8n_test_workflow',
-        description: `Test/trigger workflow execution. Auto-detects trigger type (webhook/form/chat). Supports: webhook (HTTP), form (fields), chat (message). Note: Only workflows with these trigger types can be executed externally.`,
+        name: 'n8n_trigger_webhook_workflow',
+        description: `Trigger workflow via webhook. Must be ACTIVE with Webhook node. Method must match config.`,
         inputSchema: {
             type: 'object',
             properties: {
-                workflowId: {
+                webhookUrl: {
                     type: 'string',
-                    description: 'Workflow ID to execute (required)'
-                },
-                triggerType: {
-                    type: 'string',
-                    enum: ['webhook', 'form', 'chat'],
-                    description: 'Trigger type. Auto-detected if not specified. Workflow must have a matching trigger node.'
+                    description: 'Full webhook URL from n8n workflow (e.g., https://n8n.example.com/webhook/abc-def-ghi)'
                 },
                 httpMethod: {
                     type: 'string',
                     enum: ['GET', 'POST', 'PUT', 'DELETE'],
-                    description: 'For webhook: HTTP method (default: from workflow config or POST)'
-                },
-                webhookPath: {
-                    type: 'string',
-                    description: 'For webhook: override the webhook path'
-                },
-                message: {
-                    type: 'string',
-                    description: 'For chat: message to send (required for chat triggers)'
-                },
-                sessionId: {
-                    type: 'string',
-                    description: 'For chat: session ID for conversation continuity'
+                    description: 'HTTP method (must match webhook configuration, often GET)'
                 },
                 data: {
                     type: 'object',
-                    description: 'Input data/payload for webhook, form fields, or execution data'
+                    description: 'Data to send with the webhook request'
                 },
                 headers: {
                     type: 'object',
-                    description: 'Custom HTTP headers'
-                },
-                timeout: {
-                    type: 'number',
-                    description: 'Timeout in ms (default: 120000)'
+                    description: 'Additional HTTP headers'
                 },
                 waitForResponse: {
                     type: 'boolean',
                     description: 'Wait for workflow completion (default: true)'
                 }
             },
-            required: ['workflowId']
+            required: ['webhookUrl']
         }
     },
     {
-        name: 'n8n_executions',
-        description: `Manage workflow executions: get details, list, or delete. Use action='get' with id for execution details, action='list' for listing executions, action='delete' to remove execution record.`,
+        name: 'n8n_get_execution',
+        description: `Get execution details with smart filtering. RECOMMENDED: Use mode='preview' first to assess data size.
+Examples:
+- {id, mode:'preview'} - Structure & counts (fast, no data)
+- {id, mode:'summary'} - 2 samples per node (default)
+- {id, mode:'filtered', itemsLimit:5} - 5 items per node
+- {id, nodeNames:['HTTP Request']} - Specific node only
+- {id, mode:'full'} - Complete data (use with caution)`,
         inputSchema: {
             type: 'object',
             properties: {
-                action: {
-                    type: 'string',
-                    enum: ['get', 'list', 'delete'],
-                    description: 'Operation: get=get execution details, list=list executions, delete=delete execution'
-                },
                 id: {
                     type: 'string',
-                    description: 'Execution ID (required for action=get or action=delete)'
+                    description: 'Execution ID'
                 },
                 mode: {
                     type: 'string',
                     enum: ['preview', 'summary', 'filtered', 'full'],
-                    description: 'For action=get: preview=structure only, summary=2 items (default), filtered=custom, full=all data'
+                    description: 'Data retrieval mode: preview=structure only, summary=2 items, filtered=custom, full=all data'
                 },
                 nodeNames: {
                     type: 'array',
                     items: { type: 'string' },
-                    description: 'For action=get with mode=filtered: filter to specific nodes by name'
+                    description: 'Filter to specific nodes by name (for filtered mode)'
                 },
                 itemsLimit: {
                     type: 'number',
-                    description: 'For action=get with mode=filtered: items per node (0=structure, 2=default, -1=unlimited)'
+                    description: 'Items per node: 0=structure only, 2=default, -1=unlimited (for filtered mode)'
                 },
                 includeInputData: {
                     type: 'boolean',
-                    description: 'For action=get: include input data in addition to output (default: false)'
+                    description: 'Include input data in addition to output (default: false)'
                 },
+                includeData: {
+                    type: 'boolean',
+                    description: 'Legacy: Include execution data. Maps to mode=summary if true (deprecated, use mode instead)'
+                }
+            },
+            required: ['id']
+        }
+    },
+    {
+        name: 'n8n_list_executions',
+        description: `List workflow executions (returns up to limit). Check hasMore/nextCursor for pagination.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
                 limit: {
                     type: 'number',
-                    description: 'For action=list: number of executions to return (1-100, default: 100)'
+                    description: 'Number of executions to return (1-100, default: 100)'
                 },
                 cursor: {
                     type: 'string',
-                    description: 'For action=list: pagination cursor from previous response'
+                    description: 'Pagination cursor from previous response'
                 },
                 workflowId: {
                     type: 'string',
-                    description: 'For action=list: filter by workflow ID'
+                    description: 'Filter by workflow ID'
                 },
                 projectId: {
                     type: 'string',
-                    description: 'For action=list: filter by project ID (enterprise feature)'
+                    description: 'Filter by project ID (enterprise feature)'
                 },
                 status: {
                     type: 'string',
                     enum: ['success', 'error', 'waiting'],
-                    description: 'For action=list: filter by execution status'
+                    description: 'Filter by execution status'
                 },
                 includeData: {
                     type: 'boolean',
-                    description: 'For action=list: include execution data (default: false)'
+                    description: 'Include execution data (default: false)'
+                }
+            }
+        }
+    },
+    {
+        name: 'n8n_delete_execution',
+        description: `Delete an execution record. This only removes the execution history, not any data processed.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                id: {
+                    type: 'string',
+                    description: 'Execution ID to delete'
                 }
             },
-            required: ['action']
+            required: ['id']
         }
     },
     {
         name: 'n8n_health_check',
-        description: `Check n8n instance health and API connectivity. Use mode='diagnostic' for detailed troubleshooting with env vars and tool status.`,
+        description: `Check n8n instance health and API connectivity. Returns status and available features.`,
+        inputSchema: {
+            type: 'object',
+            properties: {}
+        }
+    },
+    {
+        name: 'n8n_list_available_tools',
+        description: `List available n8n tools and capabilities.`,
+        inputSchema: {
+            type: 'object',
+            properties: {}
+        }
+    },
+    {
+        name: 'n8n_diagnostic',
+        description: `Diagnose n8n API config. Shows tool status, API connectivity, env vars. Helps troubleshoot missing tools.`,
         inputSchema: {
             type: 'object',
             properties: {
-                mode: {
-                    type: 'string',
-                    enum: ['status', 'diagnostic'],
-                    description: 'Mode: "status" (default) for quick health check, "diagnostic" for detailed debug info including env vars and tool status',
-                    default: 'status'
-                },
                 verbose: {
                     type: 'boolean',
-                    description: 'Include extra details in diagnostic mode (default: false)'
+                    description: 'Include detailed debug information (default: false)'
                 }
             }
         }
@@ -452,39 +505,6 @@ exports.n8nManagementTools = [
                 }
             },
             required: ['mode']
-        }
-    },
-    {
-        name: 'n8n_deploy_template',
-        description: `Deploy a workflow template from n8n.io directly to your n8n instance. Deploys first, then auto-fixes common issues (expression format, typeVersions). Returns workflow ID, required credentials, and fixes applied.`,
-        inputSchema: {
-            type: 'object',
-            properties: {
-                templateId: {
-                    type: 'number',
-                    description: 'Template ID from n8n.io (required)'
-                },
-                name: {
-                    type: 'string',
-                    description: 'Custom workflow name (default: template name)'
-                },
-                autoUpgradeVersions: {
-                    type: 'boolean',
-                    default: true,
-                    description: 'Automatically upgrade node typeVersions to latest supported (default: true)'
-                },
-                autoFix: {
-                    type: 'boolean',
-                    default: true,
-                    description: 'Auto-apply fixes after deployment for expression format issues, missing = prefix, etc. (default: true)'
-                },
-                stripCredentials: {
-                    type: 'boolean',
-                    default: true,
-                    description: 'Remove credential references from nodes - user configures in n8n UI (default: true)'
-                }
-            },
-            required: ['templateId']
         }
     }
 ];

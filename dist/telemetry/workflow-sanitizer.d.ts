@@ -28,7 +28,6 @@ export declare class WorkflowSanitizer {
     private static isSensitiveField;
     private static sanitizeConnections;
     static generateWorkflowHash(workflow: any): string;
-    static sanitizeWorkflowRaw(workflow: any): any;
 }
 export {};
 //# sourceMappingURL=workflow-sanitizer.d.ts.map

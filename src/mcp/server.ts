@@ -19,7 +19,6 @@ import { TaskTemplates } from '../services/task-templates';
 import { ConfigValidator } from '../services/config-validator';
 import { EnhancedConfigValidator, ValidationMode, ValidationProfile } from '../services/enhanced-config-validator';
 import { PropertyDependencies } from '../services/property-dependencies';
-import { TypeStructureService } from '../services/type-structure-service';
 import { SimpleCache } from '../utils/simple-cache';
 import { TemplateService } from '../templates/template-service';
 import { WorkflowValidator } from '../services/workflow-validator';
@@ -58,67 +57,6 @@ interface NodeRow {
   operations?: string;
   credentials_required?: string;
 }
-
-interface VersionSummary {
-  currentVersion: string;
-  totalVersions: number;
-  hasVersionHistory: boolean;
-}
-
-interface NodeMinimalInfo {
-  nodeType: string;
-  workflowNodeType: string;
-  displayName: string;
-  description: string;
-  category: string;
-  package: string;
-  isAITool: boolean;
-  isTrigger: boolean;
-  isWebhook: boolean;
-}
-
-interface NodeStandardInfo {
-  nodeType: string;
-  displayName: string;
-  description: string;
-  category: string;
-  requiredProperties: any[];
-  commonProperties: any[];
-  operations?: any[];
-  credentials?: any;
-  examples?: any[];
-  versionInfo: VersionSummary;
-}
-
-interface NodeFullInfo {
-  nodeType: string;
-  displayName: string;
-  description: string;
-  category: string;
-  properties: any[];
-  operations?: any[];
-  credentials?: any;
-  documentation?: string;
-  versionInfo: VersionSummary;
-}
-
-interface VersionHistoryInfo {
-  nodeType: string;
-  versions: any[];
-  latestVersion: string;
-  hasBreakingChanges: boolean;
-}
-
-interface VersionComparisonInfo {
-  nodeType: string;
-  fromVersion: string;
-  toVersion: string;
-  changes: any[];
-  breakingChanges?: any[];
-  migrations?: any[];
-}
-
-type NodeInfoResponse = NodeMinimalInfo | NodeStandardInfo | NodeFullInfo | VersionHistoryInfo | VersionComparisonInfo;
 
 export class N8NDocumentationMCPServer {
   private server: Server;
@@ -220,46 +158,7 @@ export class N8NDocumentationMCPServer {
 
     this.setupHandlers();
   }
-
-  /**
-   * Close the server and release resources.
-   * Should be called when the session is being removed.
-   *
-   * Order of cleanup:
-   * 1. Close MCP server connection
-   * 2. Destroy cache (clears entries AND stops cleanup timer)
-   * 3. Close database connection
-   * 4. Null out references to help GC
-   */
-  async close(): Promise<void> {
-    try {
-      await this.server.close();
-
-      // Use destroy() not clear() - also stops the cleanup timer
-      this.cache.destroy();
-
-      // Close database connection before nullifying reference
-      if (this.db) {
-        try {
-          this.db.close();
-        } catch (dbError) {
-          logger.warn('Error closing database', {
-            error: dbError instanceof Error ? dbError.message : String(dbError)
-          });
-        }
-      }
-
-      // Null out references to help garbage collection
-      this.db = null;
-      this.repository = null;
-      this.templateService = null;
-      this.earlyLogger = null;
-    } catch (error) {
-      // Log but don't throw - cleanup should be best-effort
-      logger.warn('Error closing MCP server', { error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
+  
   private async initializeDatabase(dbPath: string): Promise<void> {
     try {
       // Checkpoint: Database connecting (v2.18.3)
@@ -869,37 +768,37 @@ export class N8NDocumentationMCPServer {
       let validationResult;
       
       switch (toolName) {
-        case 'validate_node':
-          // Consolidated tool handles both modes - validate as operation for now
+        case 'validate_node_operation':
           validationResult = ToolValidation.validateNodeOperation(args);
           break;
+        case 'validate_node_minimal':
+          validationResult = ToolValidation.validateNodeMinimal(args);
+          break;
         case 'validate_workflow':
+        case 'validate_workflow_connections':
+        case 'validate_workflow_expressions':
           validationResult = ToolValidation.validateWorkflow(args);
           break;
       case 'search_nodes':
         validationResult = ToolValidation.validateSearchNodes(args);
         break;
+      case 'list_node_templates':
+        validationResult = ToolValidation.validateListNodeTemplates(args);
+        break;
       case 'n8n_create_workflow':
         validationResult = ToolValidation.validateCreateWorkflow(args);
         break;
       case 'n8n_get_workflow':
+      case 'n8n_get_workflow_details':
+      case 'n8n_get_workflow_structure':
+      case 'n8n_get_workflow_minimal':
       case 'n8n_update_full_workflow':
       case 'n8n_delete_workflow':
       case 'n8n_validate_workflow':
       case 'n8n_autofix_workflow':
+      case 'n8n_get_execution':
+      case 'n8n_delete_execution':
         validationResult = ToolValidation.validateWorkflowId(args);
-        break;
-      case 'n8n_executions':
-        // Requires action parameter, id validation done in handler based on action
-        validationResult = args.action
-          ? { valid: true, errors: [] }
-          : { valid: false, errors: [{ field: 'action', message: 'action is required' }] };
-        break;
-      case 'n8n_deploy_template':
-        // Requires templateId parameter
-        validationResult = args.templateId !== undefined
-          ? { valid: true, errors: [] }
-          : { valid: false, errors: [{ field: 'templateId', message: 'templateId is required' }] };
         break;
       default:
         // For tools not yet migrated to schema validation, use basic validation
@@ -1054,50 +953,41 @@ export class N8NDocumentationMCPServer {
       case 'tools_documentation':
         // No required parameters
         return this.getToolsDocumentation(args.topic, args.depth);
+      case 'list_nodes':
+        // No required parameters
+        return this.listNodes(args);
+      case 'get_node_info':
+        this.validateToolParams(name, args, ['nodeType']);
+        return this.getNodeInfo(args.nodeType);
       case 'search_nodes':
         this.validateToolParams(name, args, ['query']);
         // Convert limit to number if provided, otherwise use default
         const limit = args.limit !== undefined ? Number(args.limit) || 20 : 20;
         return this.searchNodes(args.query, limit, { mode: args.mode, includeExamples: args.includeExamples });
-      case 'get_node':
+      case 'list_ai_tools':
+        // No required parameters
+        return this.listAITools();
+      case 'get_node_documentation':
         this.validateToolParams(name, args, ['nodeType']);
-        // Handle consolidated modes: docs, search_properties
-        if (args.mode === 'docs') {
-          return this.getNodeDocumentation(args.nodeType);
-        }
-        if (args.mode === 'search_properties') {
-          if (!args.propertyQuery) {
-            throw new Error('propertyQuery is required for mode=search_properties');
-          }
-          const maxResults = args.maxPropertyResults !== undefined ? Number(args.maxPropertyResults) || 20 : 20;
-          return this.searchNodeProperties(args.nodeType, args.propertyQuery, maxResults);
-        }
-        return this.getNode(
-          args.nodeType,
-          args.detail,
-          args.mode,
-          args.includeTypeInfo,
-          args.includeExamples,
-          args.fromVersion,
-          args.toVersion
-        );
-      case 'validate_node':
+        return this.getNodeDocumentation(args.nodeType);
+      case 'get_database_statistics':
+        // No required parameters
+        return this.getDatabaseStatistics();
+      case 'get_node_essentials':
+        this.validateToolParams(name, args, ['nodeType']);
+        return this.getNodeEssentials(args.nodeType, args.includeExamples);
+      case 'search_node_properties':
+        this.validateToolParams(name, args, ['nodeType', 'query']);
+        const maxResults = args.maxResults !== undefined ? Number(args.maxResults) || 20 : 20;
+        return this.searchNodeProperties(args.nodeType, args.query, maxResults);
+      case 'list_tasks':
+        // No required parameters
+        return this.listTasks(args.category);
+      case 'validate_node_operation':
         this.validateToolParams(name, args, ['nodeType', 'config']);
         // Ensure config is an object
         if (typeof args.config !== 'object' || args.config === null) {
-          logger.warn(`validate_node called with invalid config type: ${typeof args.config}`);
-          const validationMode = args.mode || 'full';
-          if (validationMode === 'minimal') {
-            return {
-              nodeType: args.nodeType || 'unknown',
-              displayName: 'Unknown Node',
-              valid: false,
-              missingRequiredFields: [
-                'Invalid config format - expected object',
-                '🔧 RECOVERY: Use format { "resource": "...", "operation": "..." } or {} for empty config'
-              ]
-            };
-          }
+          logger.warn(`validate_node_operation called with invalid config type: ${typeof args.config}`);
           return {
             nodeType: args.nodeType || 'unknown',
             workflowNodeType: args.nodeType || 'unknown',
@@ -1113,7 +1003,7 @@ export class N8NDocumentationMCPServer {
             suggestions: [
               '🔧 RECOVERY: Invalid config detected. Fix with:',
               '   • Ensure config is an object: { "resource": "...", "operation": "..." }',
-              '   • Use get_node to see required fields for this node type',
+              '   • Use get_node_essentials to see required fields for this node type',
               '   • Check if the node type is correct before configuring it'
             ],
             summary: {
@@ -1124,75 +1014,95 @@ export class N8NDocumentationMCPServer {
             }
           };
         }
-        // Handle mode parameter
-        const validationMode = args.mode || 'full';
-        if (validationMode === 'minimal') {
-          return this.validateNodeMinimal(args.nodeType, args.config);
-        }
         return this.validateNodeConfig(args.nodeType, args.config, 'operation', args.profile);
+      case 'validate_node_minimal':
+        this.validateToolParams(name, args, ['nodeType', 'config']);
+        // Ensure config is an object
+        if (typeof args.config !== 'object' || args.config === null) {
+          logger.warn(`validate_node_minimal called with invalid config type: ${typeof args.config}`);
+          return {
+            nodeType: args.nodeType || 'unknown',
+            displayName: 'Unknown Node',
+            valid: false,
+            missingRequiredFields: [
+              'Invalid config format - expected object',
+              '🔧 RECOVERY: Use format { "resource": "...", "operation": "..." } or {} for empty config'
+            ]
+          };
+        }
+        return this.validateNodeMinimal(args.nodeType, args.config);
+      case 'get_property_dependencies':
+        this.validateToolParams(name, args, ['nodeType']);
+        return this.getPropertyDependencies(args.nodeType, args.config);
+      case 'get_node_as_tool_info':
+        this.validateToolParams(name, args, ['nodeType']);
+        return this.getNodeAsToolInfo(args.nodeType);
+      case 'list_templates':
+        // No required params
+        const listLimit = Math.min(Math.max(Number(args.limit) || 10, 1), 100);
+        const listOffset = Math.max(Number(args.offset) || 0, 0);
+        const sortBy = args.sortBy || 'views';
+        const includeMetadata = Boolean(args.includeMetadata);
+        return this.listTemplates(listLimit, listOffset, sortBy, includeMetadata);
+      case 'list_node_templates':
+        this.validateToolParams(name, args, ['nodeTypes']);
+        const templateLimit = Math.min(Math.max(Number(args.limit) || 10, 1), 100);
+        const templateOffset = Math.max(Number(args.offset) || 0, 0);
+        return this.listNodeTemplates(args.nodeTypes, templateLimit, templateOffset);
       case 'get_template':
         this.validateToolParams(name, args, ['templateId']);
         const templateId = Number(args.templateId);
-        const templateMode = args.mode || 'full';
-        return this.getTemplate(templateId, templateMode);
-      case 'search_templates': {
-        // Consolidated tool with searchMode parameter
-        const searchMode = args.searchMode || 'keyword';
+        const mode = args.mode || 'full';
+        return this.getTemplate(templateId, mode);
+      case 'search_templates':
+        this.validateToolParams(name, args, ['query']);
         const searchLimit = Math.min(Math.max(Number(args.limit) || 20, 1), 100);
         const searchOffset = Math.max(Number(args.offset) || 0, 0);
-
-        switch (searchMode) {
-          case 'by_nodes':
-            if (!args.nodeTypes || !Array.isArray(args.nodeTypes) || args.nodeTypes.length === 0) {
-              throw new Error('nodeTypes array is required for searchMode=by_nodes');
-            }
-            return this.listNodeTemplates(args.nodeTypes, searchLimit, searchOffset);
-          case 'by_task':
-            if (!args.task) {
-              throw new Error('task is required for searchMode=by_task');
-            }
-            return this.getTemplatesForTask(args.task, searchLimit, searchOffset);
-          case 'by_metadata':
-            return this.searchTemplatesByMetadata({
-              category: args.category,
-              complexity: args.complexity,
-              maxSetupMinutes: args.maxSetupMinutes ? Number(args.maxSetupMinutes) : undefined,
-              minSetupMinutes: args.minSetupMinutes ? Number(args.minSetupMinutes) : undefined,
-              requiredService: args.requiredService,
-              targetAudience: args.targetAudience
-            }, searchLimit, searchOffset);
-          case 'keyword':
-          default:
-            if (!args.query) {
-              throw new Error('query is required for searchMode=keyword');
-            }
-            const searchFields = args.fields as string[] | undefined;
-            return this.searchTemplates(args.query, searchLimit, searchOffset, searchFields);
-        }
-      }
+        const searchFields = args.fields as string[] | undefined;
+        return this.searchTemplates(args.query, searchLimit, searchOffset, searchFields);
+      case 'get_templates_for_task':
+        this.validateToolParams(name, args, ['task']);
+        const taskLimit = Math.min(Math.max(Number(args.limit) || 10, 1), 100);
+        const taskOffset = Math.max(Number(args.offset) || 0, 0);
+        return this.getTemplatesForTask(args.task, taskLimit, taskOffset);
+      case 'search_templates_by_metadata':
+        // No required params - all filters are optional
+        const metadataLimit = Math.min(Math.max(Number(args.limit) || 20, 1), 100);
+        const metadataOffset = Math.max(Number(args.offset) || 0, 0);
+        return this.searchTemplatesByMetadata({
+          category: args.category,
+          complexity: args.complexity,
+          maxSetupMinutes: args.maxSetupMinutes ? Number(args.maxSetupMinutes) : undefined,
+          minSetupMinutes: args.minSetupMinutes ? Number(args.minSetupMinutes) : undefined,
+          requiredService: args.requiredService,
+          targetAudience: args.targetAudience
+        }, metadataLimit, metadataOffset);
       case 'validate_workflow':
         this.validateToolParams(name, args, ['workflow']);
         return this.validateWorkflow(args.workflow, args.options);
-
+      case 'validate_workflow_connections':
+        this.validateToolParams(name, args, ['workflow']);
+        return this.validateWorkflowConnections(args.workflow);
+      case 'validate_workflow_expressions':
+        this.validateToolParams(name, args, ['workflow']);
+        return this.validateWorkflowExpressions(args.workflow);
+      
       // n8n Management Tools (if API is configured)
       case 'n8n_create_workflow':
         this.validateToolParams(name, args, ['name', 'nodes', 'connections']);
         return n8nHandlers.handleCreateWorkflow(args, this.instanceContext);
-      case 'n8n_get_workflow': {
+      case 'n8n_get_workflow':
         this.validateToolParams(name, args, ['id']);
-        const workflowMode = args.mode || 'full';
-        switch (workflowMode) {
-          case 'details':
-            return n8nHandlers.handleGetWorkflowDetails(args, this.instanceContext);
-          case 'structure':
-            return n8nHandlers.handleGetWorkflowStructure(args, this.instanceContext);
-          case 'minimal':
-            return n8nHandlers.handleGetWorkflowMinimal(args, this.instanceContext);
-          case 'full':
-          default:
-            return n8nHandlers.handleGetWorkflow(args, this.instanceContext);
-        }
-      }
+        return n8nHandlers.handleGetWorkflow(args, this.instanceContext);
+      case 'n8n_get_workflow_details':
+        this.validateToolParams(name, args, ['id']);
+        return n8nHandlers.handleGetWorkflowDetails(args, this.instanceContext);
+      case 'n8n_get_workflow_structure':
+        this.validateToolParams(name, args, ['id']);
+        return n8nHandlers.handleGetWorkflowStructure(args, this.instanceContext);
+      case 'n8n_get_workflow_minimal':
+        this.validateToolParams(name, args, ['id']);
+        return n8nHandlers.handleGetWorkflowMinimal(args, this.instanceContext);
       case 'n8n_update_full_workflow':
         this.validateToolParams(name, args, ['id']);
         return n8nHandlers.handleUpdateWorkflow(args, this.repository!, this.instanceContext);
@@ -1215,45 +1125,30 @@ export class N8NDocumentationMCPServer {
         await this.ensureInitialized();
         if (!this.repository) throw new Error('Repository not initialized');
         return n8nHandlers.handleAutofixWorkflow(args, this.repository, this.instanceContext);
-      case 'n8n_test_workflow':
-        this.validateToolParams(name, args, ['workflowId']);
-        return n8nHandlers.handleTestWorkflow(args, this.instanceContext);
-      case 'n8n_executions': {
-        this.validateToolParams(name, args, ['action']);
-        const execAction = args.action;
-        switch (execAction) {
-          case 'get':
-            if (!args.id) {
-              throw new Error('id is required for action=get');
-            }
-            return n8nHandlers.handleGetExecution(args, this.instanceContext);
-          case 'list':
-            return n8nHandlers.handleListExecutions(args, this.instanceContext);
-          case 'delete':
-            if (!args.id) {
-              throw new Error('id is required for action=delete');
-            }
-            return n8nHandlers.handleDeleteExecution(args, this.instanceContext);
-          default:
-            throw new Error(`Unknown action: ${execAction}. Valid actions: get, list, delete`);
-        }
-      }
+      case 'n8n_trigger_webhook_workflow':
+        this.validateToolParams(name, args, ['webhookUrl']);
+        return n8nHandlers.handleTriggerWebhookWorkflow(args, this.instanceContext);
+      case 'n8n_get_execution':
+        this.validateToolParams(name, args, ['id']);
+        return n8nHandlers.handleGetExecution(args, this.instanceContext);
+      case 'n8n_list_executions':
+        // No required parameters
+        return n8nHandlers.handleListExecutions(args, this.instanceContext);
+      case 'n8n_delete_execution':
+        this.validateToolParams(name, args, ['id']);
+        return n8nHandlers.handleDeleteExecution(args, this.instanceContext);
       case 'n8n_health_check':
-        // No required parameters - supports mode='status' (default) or mode='diagnostic'
-        if (args.mode === 'diagnostic') {
-          return n8nHandlers.handleDiagnostic({ params: { arguments: args } }, this.instanceContext);
-        }
+        // No required parameters
         return n8nHandlers.handleHealthCheck(this.instanceContext);
+      case 'n8n_list_available_tools':
+        // No required parameters
+        return n8nHandlers.handleListAvailableTools(this.instanceContext);
+      case 'n8n_diagnostic':
+        // No required parameters
+        return n8nHandlers.handleDiagnostic({ params: { arguments: args } }, this.instanceContext);
       case 'n8n_workflow_versions':
         this.validateToolParams(name, args, ['mode']);
         return n8nHandlers.handleWorkflowVersions(args, this.repository!, this.instanceContext);
-
-      case 'n8n_deploy_template':
-        this.validateToolParams(name, args, ['templateId']);
-        await this.ensureInitialized();
-        if (!this.templateService) throw new Error('Template service not initialized');
-        if (!this.repository) throw new Error('Repository not initialized');
-        return n8nHandlers.handleDeployTemplate(args, this.templateService, this.repository, this.instanceContext);
 
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -2242,19 +2137,14 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
     // Get operations (already parsed by repository)
     const operations = node.operations || [];
     
-    // Get the latest version - this is important for AI to use correct typeVersion
-    const latestVersion = node.version ?? '1';
-
     const result = {
       nodeType: node.nodeType,
       workflowNodeType: getWorkflowNodeType(node.package ?? 'n8n-nodes-base', node.nodeType),
       displayName: node.displayName,
       description: node.description,
       category: node.category,
-      version: latestVersion,
+      version: node.version ?? '1',
       isVersioned: node.isVersioned ?? false,
-      // Prominent warning to use the correct typeVersion
-      versionNotice: `⚠️ Use typeVersion: ${latestVersion} when creating this node`,
       requiredProperties: essentials.required,
       commonProperties: essentials.common,
       operations: operations.map((op: any) => ({
@@ -2326,393 +2216,6 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
     this.cache.set(cacheKey, result, 3600);
 
     return result;
-  }
-
-  /**
-   * Unified node information retrieval with multiple detail levels and modes.
-   *
-   * @param nodeType - Full node type identifier (e.g., "nodes-base.httpRequest" or "nodes-langchain.agent")
-   * @param detail - Information detail level (minimal, standard, full). Only applies when mode='info'.
-   *   - minimal: ~200 tokens, basic metadata only (no version info)
-   *   - standard: ~1-2K tokens, essential properties and operations (includes version info, AI-friendly default)
-   *   - full: ~3-8K tokens, complete node information with all properties (includes version info)
-   * @param mode - Operation mode determining the type of information returned:
-   *   - info: Node configuration details (respects detail level)
-   *   - versions: Complete version history with breaking changes summary
-   *   - compare: Property-level comparison between two versions (requires fromVersion)
-   *   - breaking: Breaking changes only between versions (requires fromVersion)
-   *   - migrations: Auto-migratable changes between versions (requires both fromVersion and toVersion)
-   * @param includeTypeInfo - Include type structure metadata for properties (only applies to mode='info').
-   *   Adds ~80-120 tokens per property with type category, JS type, and validation rules.
-   * @param includeExamples - Include real-world configuration examples from templates (only applies to mode='info' with detail='standard').
-   *   Adds ~200-400 tokens per example.
-   * @param fromVersion - Source version for comparison modes (required for compare, breaking, migrations).
-   *   Format: "1.0" or "2.1"
-   * @param toVersion - Target version for comparison modes (optional for compare/breaking, required for migrations).
-   *   Defaults to latest version if omitted.
-   * @returns NodeInfoResponse - Union type containing different response structures based on mode and detail parameters
-   */
-  private async getNode(
-    nodeType: string,
-    detail: string = 'standard',
-    mode: string = 'info',
-    includeTypeInfo?: boolean,
-    includeExamples?: boolean,
-    fromVersion?: string,
-    toVersion?: string
-  ): Promise<NodeInfoResponse> {
-    await this.ensureInitialized();
-    if (!this.repository) throw new Error('Repository not initialized');
-
-    // Validate parameters
-    const validDetailLevels = ['minimal', 'standard', 'full'];
-    const validModes = ['info', 'versions', 'compare', 'breaking', 'migrations'];
-
-    if (!validDetailLevels.includes(detail)) {
-      throw new Error(`get_node: Invalid detail level "${detail}". Valid options: ${validDetailLevels.join(', ')}`);
-    }
-
-    if (!validModes.includes(mode)) {
-      throw new Error(`get_node: Invalid mode "${mode}". Valid options: ${validModes.join(', ')}`);
-    }
-
-    const normalizedType = NodeTypeNormalizer.normalizeToFullForm(nodeType);
-
-    // Version modes - detail level ignored
-    if (mode !== 'info') {
-      return this.handleVersionMode(
-        normalizedType,
-        mode,
-        fromVersion,
-        toVersion
-      );
-    }
-
-    // Info mode - respect detail level
-    return this.handleInfoMode(
-      normalizedType,
-      detail,
-      includeTypeInfo,
-      includeExamples
-    );
-  }
-
-  /**
-   * Handle info mode - returns node information at specified detail level
-   */
-  private async handleInfoMode(
-    nodeType: string,
-    detail: string,
-    includeTypeInfo?: boolean,
-    includeExamples?: boolean
-  ): Promise<NodeMinimalInfo | NodeStandardInfo | NodeFullInfo> {
-    switch (detail) {
-      case 'minimal': {
-        // Get basic node metadata only (no version info for minimal mode)
-        let node = this.repository!.getNode(nodeType);
-
-        if (!node) {
-          const alternatives = getNodeTypeAlternatives(nodeType);
-          for (const alt of alternatives) {
-            const found = this.repository!.getNode(alt);
-            if (found) {
-              node = found;
-              break;
-            }
-          }
-        }
-
-        if (!node) {
-          throw new Error(`Node ${nodeType} not found`);
-        }
-
-        return {
-          nodeType: node.nodeType,
-          workflowNodeType: getWorkflowNodeType(node.package ?? 'n8n-nodes-base', node.nodeType),
-          displayName: node.displayName,
-          description: node.description,
-          category: node.category,
-          package: node.package,
-          isAITool: node.isAITool,
-          isTrigger: node.isTrigger,
-          isWebhook: node.isWebhook
-        };
-      }
-
-      case 'standard': {
-        // Use existing getNodeEssentials logic
-        const essentials = await this.getNodeEssentials(nodeType, includeExamples);
-        const versionSummary = this.getVersionSummary(nodeType);
-
-        // Apply type info enrichment if requested
-        if (includeTypeInfo) {
-          essentials.requiredProperties = this.enrichPropertiesWithTypeInfo(essentials.requiredProperties);
-          essentials.commonProperties = this.enrichPropertiesWithTypeInfo(essentials.commonProperties);
-        }
-
-        return {
-          ...essentials,
-          versionInfo: versionSummary
-        };
-      }
-
-      case 'full': {
-        // Use existing getNodeInfo logic
-        const fullInfo = await this.getNodeInfo(nodeType);
-        const versionSummary = this.getVersionSummary(nodeType);
-
-        // Apply type info enrichment if requested
-        if (includeTypeInfo && fullInfo.properties) {
-          fullInfo.properties = this.enrichPropertiesWithTypeInfo(fullInfo.properties);
-        }
-
-        return {
-          ...fullInfo,
-          versionInfo: versionSummary
-        };
-      }
-
-      default:
-        throw new Error(`Unknown detail level: ${detail}`);
-    }
-  }
-
-  /**
-   * Handle version modes - returns version history and comparison data
-   */
-  private async handleVersionMode(
-    nodeType: string,
-    mode: string,
-    fromVersion?: string,
-    toVersion?: string
-  ): Promise<VersionHistoryInfo | VersionComparisonInfo> {
-    switch (mode) {
-      case 'versions':
-        return this.getVersionHistory(nodeType);
-
-      case 'compare':
-        if (!fromVersion) {
-          throw new Error(`get_node: fromVersion is required for compare mode (nodeType: ${nodeType})`);
-        }
-        return this.compareVersions(nodeType, fromVersion, toVersion);
-
-      case 'breaking':
-        if (!fromVersion) {
-          throw new Error(`get_node: fromVersion is required for breaking mode (nodeType: ${nodeType})`);
-        }
-        return this.getBreakingChanges(nodeType, fromVersion, toVersion);
-
-      case 'migrations':
-        if (!fromVersion || !toVersion) {
-          throw new Error(`get_node: Both fromVersion and toVersion are required for migrations mode (nodeType: ${nodeType})`);
-        }
-        return this.getMigrations(nodeType, fromVersion, toVersion);
-
-      default:
-        throw new Error(`get_node: Unknown mode: ${mode} (nodeType: ${nodeType})`);
-    }
-  }
-
-  /**
-   * Get version summary (always included in info mode responses)
-   * Cached for 24 hours to improve performance
-   */
-  private getVersionSummary(nodeType: string): VersionSummary {
-    const cacheKey = `version-summary:${nodeType}`;
-    const cached = this.cache.get(cacheKey) as VersionSummary | null;
-
-    if (cached) {
-      return cached;
-    }
-
-    const versions = this.repository!.getNodeVersions(nodeType);
-    const latest = this.repository!.getLatestNodeVersion(nodeType);
-
-    const summary: VersionSummary = {
-      currentVersion: latest?.version || 'unknown',
-      totalVersions: versions.length,
-      hasVersionHistory: versions.length > 0
-    };
-
-    // Cache for 24 hours (86400000 ms)
-    this.cache.set(cacheKey, summary, 86400000);
-
-    return summary;
-  }
-
-  /**
-   * Get complete version history for a node
-   */
-  private getVersionHistory(nodeType: string): any {
-    const versions = this.repository!.getNodeVersions(nodeType);
-
-    return {
-      nodeType,
-      totalVersions: versions.length,
-      versions: versions.map(v => ({
-        version: v.version,
-        isCurrent: v.isCurrentMax,
-        minimumN8nVersion: v.minimumN8nVersion,
-        releasedAt: v.releasedAt,
-        hasBreakingChanges: (v.breakingChanges || []).length > 0,
-        breakingChangesCount: (v.breakingChanges || []).length,
-        deprecatedProperties: v.deprecatedProperties || [],
-        addedProperties: v.addedProperties || []
-      })),
-      available: versions.length > 0,
-      message: versions.length === 0 ?
-        'No version history available. Version tracking may not be enabled for this node.' :
-        undefined
-    };
-  }
-
-  /**
-   * Compare two versions of a node
-   */
-  private compareVersions(
-    nodeType: string,
-    fromVersion: string,
-    toVersion?: string
-  ): any {
-    const latest = this.repository!.getLatestNodeVersion(nodeType);
-    const targetVersion = toVersion || latest?.version;
-
-    if (!targetVersion) {
-      throw new Error('No target version available');
-    }
-
-    const changes = this.repository!.getPropertyChanges(
-      nodeType,
-      fromVersion,
-      targetVersion
-    );
-
-    return {
-      nodeType,
-      fromVersion,
-      toVersion: targetVersion,
-      totalChanges: changes.length,
-      breakingChanges: changes.filter(c => c.isBreaking).length,
-      changes: changes.map(c => ({
-        property: c.propertyName,
-        changeType: c.changeType,
-        isBreaking: c.isBreaking,
-        severity: c.severity,
-        oldValue: c.oldValue,
-        newValue: c.newValue,
-        migrationHint: c.migrationHint,
-        autoMigratable: c.autoMigratable
-      }))
-    };
-  }
-
-  /**
-   * Get breaking changes between versions
-   */
-  private getBreakingChanges(
-    nodeType: string,
-    fromVersion: string,
-    toVersion?: string
-  ): any {
-    const breakingChanges = this.repository!.getBreakingChanges(
-      nodeType,
-      fromVersion,
-      toVersion
-    );
-
-    return {
-      nodeType,
-      fromVersion,
-      toVersion: toVersion || 'latest',
-      totalBreakingChanges: breakingChanges.length,
-      changes: breakingChanges.map(c => ({
-        fromVersion: c.fromVersion,
-        toVersion: c.toVersion,
-        property: c.propertyName,
-        changeType: c.changeType,
-        severity: c.severity,
-        migrationHint: c.migrationHint,
-        oldValue: c.oldValue,
-        newValue: c.newValue
-      })),
-      upgradeSafe: breakingChanges.length === 0
-    };
-  }
-
-  /**
-   * Get auto-migratable changes between versions
-   */
-  private getMigrations(
-    nodeType: string,
-    fromVersion: string,
-    toVersion: string
-  ): any {
-    const migrations = this.repository!.getAutoMigratableChanges(
-      nodeType,
-      fromVersion,
-      toVersion
-    );
-
-    const allChanges = this.repository!.getPropertyChanges(
-      nodeType,
-      fromVersion,
-      toVersion
-    );
-
-    return {
-      nodeType,
-      fromVersion,
-      toVersion,
-      autoMigratableChanges: migrations.length,
-      totalChanges: allChanges.length,
-      migrations: migrations.map(m => ({
-        property: m.propertyName,
-        changeType: m.changeType,
-        migrationStrategy: m.migrationStrategy,
-        severity: m.severity
-      })),
-      requiresManualMigration: migrations.length < allChanges.length
-    };
-  }
-
-  /**
-   * Enrich property with type structure metadata
-   */
-  private enrichPropertyWithTypeInfo(property: any): any {
-    if (!property || !property.type) return property;
-
-    const structure = TypeStructureService.getStructure(property.type);
-    if (!structure) return property;
-
-    return {
-      ...property,
-      typeInfo: {
-        category: structure.type,
-        jsType: structure.jsType,
-        description: structure.description,
-        isComplex: TypeStructureService.isComplexType(property.type),
-        isPrimitive: TypeStructureService.isPrimitiveType(property.type),
-        allowsExpressions: structure.validation?.allowExpressions ?? true,
-        allowsEmpty: structure.validation?.allowEmpty ?? false,
-        ...(structure.structure && {
-          structureHints: {
-            hasProperties: !!structure.structure.properties,
-            hasItems: !!structure.structure.items,
-            isFlexible: structure.structure.flexible ?? false,
-            requiredFields: structure.structure.required ?? []
-          }
-        }),
-        ...(structure.notes && { notes: structure.notes })
-      }
-    };
-  }
-
-  /**
-   * Enrich an array of properties with type structure metadata
-   */
-  private enrichPropertiesWithTypeInfo(properties: any[]): any[] {
-    if (!properties || !Array.isArray(properties)) return properties;
-    return properties.map((prop: any) => this.enrichPropertyWithTypeInfo(prop));
   }
 
   private async searchNodeProperties(nodeType: string, query: string, maxResults: number = 20): Promise<any> {

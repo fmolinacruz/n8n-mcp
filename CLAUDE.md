@@ -1,5 +1,10 @@
 # CLAUDE.md
 
+---
+last_updated: 2025-12-17
+source: core/n8n-mcp/CLAUDE.md
+---
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -28,15 +33,8 @@ src/
 │   ├── enhanced-config-validator.ts # Operation-aware validation (NEW in v2.4.2)
 │   ├── node-specific-validators.ts  # Node-specific validation logic (NEW in v2.4.2)
 │   ├── property-dependencies.ts # Dependency analysis (NEW in v2.4)
-│   ├── type-structure-service.ts # Type structure validation (NEW in v2.22.21)
 │   ├── expression-validator.ts # n8n expression syntax validation (NEW in v2.5.0)
 │   └── workflow-validator.ts  # Complete workflow validation (NEW in v2.5.0)
-├── types/
-│   ├── type-structures.ts      # Type structure definitions (NEW in v2.22.21)
-│   ├── instance-context.ts     # Multi-tenant instance configuration
-│   └── session-state.ts        # Session persistence types (NEW in v2.24.1)
-├── constants/
-│   └── type-structures.ts      # 22 complete type structures (NEW in v2.22.21)
 ├── templates/
 │   ├── template-fetcher.ts    # Fetches templates from n8n.io API (NEW in v2.4.1)
 │   ├── template-repository.ts # Template database operations (NEW in v2.4.1)
@@ -47,7 +45,6 @@ src/
 │   ├── test-nodes.ts          # Critical node tests
 │   ├── test-essentials.ts     # Test new essentials tools (NEW in v2.4)
 │   ├── test-enhanced-validation.ts # Test enhanced validation (NEW in v2.4.2)
-│   ├── test-structure-validation.ts # Test type structure validation (NEW in v2.22.21)
 │   ├── test-workflow-validation.ts # Test workflow validation (NEW in v2.5.0)
 │   ├── test-ai-workflow-validation.ts # Test AI workflow validation (NEW in v2.5.1)
 │   ├── test-mcp-tools.ts      # Test MCP tool enhancements (NEW in v2.5.1)
@@ -66,9 +63,7 @@ src/
 │   ├── console-manager.ts     # Console output isolation (NEW in v2.3.1)
 │   └── logger.ts              # Logging utility with HTTP awareness
 ├── http-server-single-session.ts  # Single-session HTTP server (NEW in v2.3.1)
-│                                   # Session persistence API (NEW in v2.24.1)
 ├── mcp-engine.ts              # Clean API for service integration (NEW in v2.3.1)
-│                                # Session persistence wrappers (NEW in v2.24.1)
 └── index.ts                   # Library exports
 ```
 
@@ -86,7 +81,6 @@ npm run test:unit      # Run unit tests only
 npm run test:integration # Run integration tests
 npm run test:coverage  # Run tests with coverage report
 npm run test:watch     # Run tests in watch mode
-npm run test:structure-validation # Test type structure validation (Phase 3)
 
 # Run a single test file
 npm test -- tests/unit/services/property-filter.test.ts
@@ -137,7 +131,6 @@ npm run test:templates   # Test template functionality
 4. **Service Layer** (`services/`)
    - **Property Filter**: Reduces node properties to AI-friendly essentials
    - **Config Validator**: Multi-profile validation system
-   - **Type Structure Service**: Validates complex type structures (filter, resourceMapper, etc.)
    - **Expression Validator**: Validates n8n expression syntax
    - **Workflow Validator**: Complete workflow structure validation
 
@@ -194,35 +187,6 @@ The MCP server exposes tools in several categories:
 
 ### Development Best Practices
 - Run typecheck and lint after every code change
-
-### Session Persistence Feature (v2.24.1)
-
-**Location:**
-- Types: `src/types/session-state.ts`
-- Implementation: `src/http-server-single-session.ts` (lines 698-702, 1444-1584)
-- Wrapper: `src/mcp-engine.ts` (lines 123-169)
-- Tests: `tests/unit/http-server/session-persistence.test.ts`, `tests/unit/mcp-engine/session-persistence.test.ts`
-
-**Key Features:**
-- **Export/Restore API**: `exportSessionState()` and `restoreSessionState()` methods
-- **Multi-tenant support**: Enables zero-downtime deployments for SaaS platforms
-- **Security-first**: API keys exported as plaintext - downstream MUST encrypt
-- **Dormant sessions**: Restored sessions recreate transports on first request
-- **Automatic expiration**: Respects `sessionTimeout` setting (default 30 min)
-- **MAX_SESSIONS limit**: Caps at 100 concurrent sessions (configurable via N8N_MCP_MAX_SESSIONS env var)
-
-**Important Implementation Notes:**
-- Only exports sessions with valid n8nApiUrl and n8nApiKey in context
-- Skips expired sessions during both export and restore
-- Uses `validateInstanceContext()` for data integrity checks
-- Handles null/invalid session gracefully with warnings
-- Session metadata (timestamps) and context (credentials) are persisted
-- Transport and server objects are NOT persisted (recreated on-demand)
-
-**Testing:**
-- 22 unit tests covering export, restore, edge cases, and round-trip cycles
-- Tests use current timestamps to avoid expiration issues
-- Integration with multi-tenant backends documented in README.md
 
 # important-instruction-reminders
 Do what has been asked; nothing more, nothing less.

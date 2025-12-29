@@ -182,6 +182,14 @@ class NodeSpecificValidators {
     static validateGoogleSheets(context) {
         const { config, errors, warnings, suggestions } = context;
         const { operation } = config;
+        if (!config.sheetId && !config.documentId) {
+            errors.push({
+                type: 'missing_required',
+                property: 'sheetId',
+                message: 'Spreadsheet ID is required',
+                fix: 'Provide the Google Sheets document ID from the URL'
+            });
+        }
         switch (operation) {
             case 'append':
                 this.validateGoogleSheetsAppend(context);
@@ -199,18 +207,6 @@ class NodeSpecificValidators {
         if (config.range) {
             this.validateGoogleSheetsRange(config.range, errors, warnings);
         }
-        const filteredErrors = [];
-        for (const error of errors) {
-            if (error.property === 'sheetId' && error.type === 'missing_required') {
-                continue;
-            }
-            if (error.property && error.property.includes('sheetId') && error.type === 'missing_required') {
-                continue;
-            }
-            filteredErrors.push(error);
-        }
-        errors.length = 0;
-        errors.push(...filteredErrors);
     }
     static validateGoogleSheetsAppend(context) {
         const { config, errors, warnings, autofix } = context;

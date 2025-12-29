@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import express from 'express';
 import { InstanceContext } from './types/instance-context';
-import { SessionState } from './types/session-state';
 export declare class SingleSessionHTTPServer {
     private transports;
     private servers;
@@ -31,7 +30,6 @@ export declare class SingleSessionHTTPServer {
     handleRequest(req: express.Request, res: express.Response, instanceContext?: InstanceContext): Promise<void>;
     private resetSessionSSE;
     private isExpired;
-    private isSessionExpired;
     start(): Promise<void>;
     shutdown(): Promise<void>;
     getSessionInfo(): {
@@ -46,7 +44,5 @@ export declare class SingleSessionHTTPServer {
             sessionIds: string[];
         };
     };
-    exportSessionState(): SessionState[];
-    restoreSessionState(sessions: SessionState[]): number;
 }
 //# sourceMappingURL=http-server-single-session.d.ts.map

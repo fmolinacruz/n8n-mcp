@@ -47,8 +47,5 @@ export declare class EnhancedConfigValidator extends ConfigValidator {
     private static validateIfNodeStructure;
     private static validateFilterNodeStructure;
     private static validateResourceAndOperation;
-    private static validateSpecialTypeStructures;
-    private static validateComplexTypeStructure;
-    private static validateFilterOperations;
 }
 //# sourceMappingURL=enhanced-config-validator.d.ts.map

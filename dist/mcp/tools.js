@@ -22,6 +22,51 @@ exports.n8nDocumentationToolsFinal = [
         },
     },
     {
+        name: 'list_nodes',
+        description: `List n8n nodes. Common: list_nodes({limit:200}) for all, list_nodes({category:'trigger'}) for triggers. Package: "n8n-nodes-base" or "@n8n/n8n-nodes-langchain". Categories: trigger/transform/output/input.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                package: {
+                    type: 'string',
+                    description: '"n8n-nodes-base" (core) or "@n8n/n8n-nodes-langchain" (AI)',
+                },
+                category: {
+                    type: 'string',
+                    description: 'trigger|transform|output|input|AI',
+                },
+                developmentStyle: {
+                    type: 'string',
+                    enum: ['declarative', 'programmatic'],
+                    description: 'Usually "programmatic"',
+                },
+                isAITool: {
+                    type: 'boolean',
+                    description: 'Filter AI-capable nodes',
+                },
+                limit: {
+                    type: 'number',
+                    description: 'Max results (default 50, use 200+ for all)',
+                    default: 50,
+                },
+            },
+        },
+    },
+    {
+        name: 'get_node_info',
+        description: `Get full node documentation. Pass nodeType as string with prefix. Example: nodeType="nodes-base.webhook"`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                nodeType: {
+                    type: 'string',
+                    description: 'Full type: "nodes-base.{name}" or "nodes-langchain.{name}". Examples: nodes-base.httpRequest, nodes-base.webhook, nodes-base.slack',
+                },
+            },
+            required: ['nodeType'],
+        },
+    },
+    {
         name: 'search_nodes',
         description: `Search n8n nodes by keyword with optional real-world examples. Pass query as string. Example: query="webhook" or query="database". Returns max 20 results. Use includeExamples=true to get top 2 template configs per node.`,
         inputSchema: {
@@ -52,61 +97,93 @@ exports.n8nDocumentationToolsFinal = [
         },
     },
     {
-        name: 'get_node',
-        description: `Get node info with progressive detail levels and multiple modes. Detail: minimal (~200 tokens), standard (~1-2K, default), full (~3-8K). Modes: info (default), docs (markdown documentation), search_properties (find properties), versions/compare/breaking/migrations (version info). Use format='docs' for readable documentation, mode='search_properties' with propertyQuery for finding specific fields.`,
+        name: 'list_ai_tools',
+        description: `List 263 AI-optimized nodes. Note: ANY node can be AI tool! Connect any node to AI Agent's tool port. Community nodes need N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true.`,
+        inputSchema: {
+            type: 'object',
+            properties: {},
+        },
+    },
+    {
+        name: 'get_node_documentation',
+        description: `Get readable docs with examples/auth/patterns. Better than raw schema! 87% coverage. Format: "nodes-base.slack"`,
         inputSchema: {
             type: 'object',
             properties: {
                 nodeType: {
                     type: 'string',
-                    description: 'Full node type: "nodes-base.httpRequest" or "nodes-langchain.agent"',
-                },
-                detail: {
-                    type: 'string',
-                    enum: ['minimal', 'standard', 'full'],
-                    default: 'standard',
-                    description: 'Information detail level. standard=essential properties (recommended), full=everything',
-                },
-                mode: {
-                    type: 'string',
-                    enum: ['info', 'docs', 'search_properties', 'versions', 'compare', 'breaking', 'migrations'],
-                    default: 'info',
-                    description: 'Operation mode. info=node schema, docs=readable markdown documentation, search_properties=find specific properties, versions/compare/breaking/migrations=version info',
-                },
-                includeTypeInfo: {
-                    type: 'boolean',
-                    default: false,
-                    description: 'Include type structure metadata (type category, JS type, validation rules). Only applies to mode=info. Adds ~80-120 tokens per property.',
-                },
-                includeExamples: {
-                    type: 'boolean',
-                    default: false,
-                    description: 'Include real-world configuration examples from templates. Only applies to mode=info with detail=standard. Adds ~200-400 tokens per example.',
-                },
-                fromVersion: {
-                    type: 'string',
-                    description: 'Source version for compare/breaking/migrations modes (e.g., "1.0")',
-                },
-                toVersion: {
-                    type: 'string',
-                    description: 'Target version for compare mode (e.g., "2.0"). Defaults to latest if omitted.',
-                },
-                propertyQuery: {
-                    type: 'string',
-                    description: 'For mode=search_properties: search term to find properties (e.g., "auth", "header", "body")',
-                },
-                maxPropertyResults: {
-                    type: 'number',
-                    description: 'For mode=search_properties: max results (default 20)',
-                    default: 20,
+                    description: 'Full type with prefix: "nodes-base.slack"',
                 },
             },
             required: ['nodeType'],
         },
     },
     {
-        name: 'validate_node',
-        description: `Validate n8n node configuration. Use mode='full' for comprehensive validation with errors/warnings/suggestions, mode='minimal' for quick required fields check. Example: nodeType="nodes-base.slack", config={resource:"channel",operation:"create"}`,
+        name: 'get_database_statistics',
+        description: `Node stats: 525 total, 263 AI tools, 104 triggers, 87% docs coverage. Verifies MCP working.`,
+        inputSchema: {
+            type: 'object',
+            properties: {},
+        },
+    },
+    {
+        name: 'get_node_essentials',
+        description: `Get node essential info with optional real-world examples from templates. Pass nodeType as string with prefix. Example: nodeType="nodes-base.slack". Use includeExamples=true to get top 3 template configs.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                nodeType: {
+                    type: 'string',
+                    description: 'Full type: "nodes-base.httpRequest"',
+                },
+                includeExamples: {
+                    type: 'boolean',
+                    description: 'Include top 3 real-world configuration examples from popular templates (default: false)',
+                    default: false,
+                },
+            },
+            required: ['nodeType'],
+        },
+    },
+    {
+        name: 'search_node_properties',
+        description: `Find specific properties in a node (auth, headers, body, etc). Returns paths and descriptions.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                nodeType: {
+                    type: 'string',
+                    description: 'Full type with prefix',
+                },
+                query: {
+                    type: 'string',
+                    description: 'Property to find: "auth", "header", "body", "json"',
+                },
+                maxResults: {
+                    type: 'number',
+                    description: 'Max results (default 20)',
+                    default: 20,
+                },
+            },
+            required: ['nodeType', 'query'],
+        },
+    },
+    {
+        name: 'list_tasks',
+        description: `List task templates by category: HTTP/API, Webhooks, Database, AI, Data Processing, Communication.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                category: {
+                    type: 'string',
+                    description: 'Filter by category (optional)',
+                },
+            },
+        },
+    },
+    {
+        name: 'validate_node_operation',
+        description: `Validate n8n node configuration. Pass nodeType as string and config as object. Example: nodeType="nodes-base.slack", config={resource:"channel",operation:"create"}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -118,16 +195,10 @@ exports.n8nDocumentationToolsFinal = [
                     type: 'object',
                     description: 'Configuration as object. For simple nodes use {}. For complex nodes include fields like {resource:"channel",operation:"create"}',
                 },
-                mode: {
-                    type: 'string',
-                    enum: ['full', 'minimal'],
-                    description: 'Validation mode. full=comprehensive validation with errors/warnings/suggestions, minimal=quick required fields check only. Default is "full"',
-                    default: 'full',
-                },
                 profile: {
                     type: 'string',
                     enum: ['strict', 'runtime', 'ai-friendly', 'minimal'],
-                    description: 'Profile for mode=full: "minimal", "runtime", "ai-friendly", or "strict". Default is "ai-friendly"',
+                    description: 'Profile string: "minimal", "runtime", "ai-friendly", or "strict". Default is "ai-friendly"',
                     default: 'ai-friendly',
                 },
             },
@@ -166,11 +237,6 @@ exports.n8nDocumentationToolsFinal = [
                     }
                 },
                 suggestions: { type: 'array', items: { type: 'string' } },
-                missingRequiredFields: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    description: 'Only present in mode=minimal'
-                },
                 summary: {
                     type: 'object',
                     properties: {
@@ -181,7 +247,132 @@ exports.n8nDocumentationToolsFinal = [
                     }
                 }
             },
-            required: ['nodeType', 'displayName', 'valid']
+            required: ['nodeType', 'displayName', 'valid', 'errors', 'warnings', 'suggestions', 'summary']
+        },
+    },
+    {
+        name: 'validate_node_minimal',
+        description: `Check n8n node required fields. Pass nodeType as string and config as empty object {}. Example: nodeType="nodes-base.webhook", config={}`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                nodeType: {
+                    type: 'string',
+                    description: 'Node type as string. Example: "nodes-base.slack"',
+                },
+                config: {
+                    type: 'object',
+                    description: 'Configuration object. Always pass {} for empty config',
+                },
+            },
+            required: ['nodeType', 'config'],
+            additionalProperties: false,
+        },
+        outputSchema: {
+            type: 'object',
+            properties: {
+                nodeType: { type: 'string' },
+                displayName: { type: 'string' },
+                valid: { type: 'boolean' },
+                missingRequiredFields: {
+                    type: 'array',
+                    items: { type: 'string' }
+                }
+            },
+            required: ['nodeType', 'displayName', 'valid', 'missingRequiredFields']
+        },
+    },
+    {
+        name: 'get_property_dependencies',
+        description: `Shows property dependencies and visibility rules. Example: sendBody=true reveals body fields. Test visibility with optional config.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                nodeType: {
+                    type: 'string',
+                    description: 'The node type to analyze (e.g., "nodes-base.httpRequest")',
+                },
+                config: {
+                    type: 'object',
+                    description: 'Optional partial configuration to check visibility impact',
+                },
+            },
+            required: ['nodeType'],
+        },
+    },
+    {
+        name: 'get_node_as_tool_info',
+        description: `How to use ANY node as AI tool. Shows requirements, use cases, examples. Works for all nodes, not just AI-marked ones.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                nodeType: {
+                    type: 'string',
+                    description: 'Full node type WITH prefix: "nodes-base.slack", "nodes-base.googleSheets", etc.',
+                },
+            },
+            required: ['nodeType'],
+        },
+    },
+    {
+        name: 'list_templates',
+        description: `List all templates with minimal data (id, name, description, views, node count). Optionally include AI-generated metadata for smart filtering.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                limit: {
+                    type: 'number',
+                    description: 'Number of results (1-100). Default 10.',
+                    default: 10,
+                    minimum: 1,
+                    maximum: 100,
+                },
+                offset: {
+                    type: 'number',
+                    description: 'Pagination offset. Default 0.',
+                    default: 0,
+                    minimum: 0,
+                },
+                sortBy: {
+                    type: 'string',
+                    enum: ['views', 'created_at', 'name'],
+                    description: 'Sort field. Default: views (popularity).',
+                    default: 'views',
+                },
+                includeMetadata: {
+                    type: 'boolean',
+                    description: 'Include AI-generated metadata (categories, complexity, setup time, etc.). Default false.',
+                    default: false,
+                },
+            },
+        },
+    },
+    {
+        name: 'list_node_templates',
+        description: `Find templates using specific nodes. Returns paginated results. Use FULL types: "n8n-nodes-base.httpRequest".`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                nodeTypes: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Array of node types to search for (e.g., ["n8n-nodes-base.httpRequest", "n8n-nodes-base.openAi"])',
+                },
+                limit: {
+                    type: 'number',
+                    description: 'Maximum number of templates to return. Default 10.',
+                    default: 10,
+                    minimum: 1,
+                    maximum: 100,
+                },
+                offset: {
+                    type: 'number',
+                    description: 'Pagination offset. Default 0.',
+                    default: 0,
+                    minimum: 0,
+                },
+            },
+            required: ['nodeTypes'],
         },
     },
     {
@@ -206,19 +397,13 @@ exports.n8nDocumentationToolsFinal = [
     },
     {
         name: 'search_templates',
-        description: `Search templates with multiple modes. Use searchMode='keyword' for text search, 'by_nodes' to find templates using specific nodes, 'by_task' for curated task-based templates, 'by_metadata' for filtering by complexity/setup time/services.`,
+        description: `Search templates by name/description keywords. Returns paginated results. NOT for node types! For nodes use list_node_templates.`,
         inputSchema: {
             type: 'object',
             properties: {
-                searchMode: {
-                    type: 'string',
-                    enum: ['keyword', 'by_nodes', 'by_task', 'by_metadata'],
-                    description: 'Search mode. keyword=text search (default), by_nodes=find by node types, by_task=curated task templates, by_metadata=filter by complexity/services',
-                    default: 'keyword',
-                },
                 query: {
                     type: 'string',
-                    description: 'For searchMode=keyword: search keyword (e.g., "chatbot")',
+                    description: 'Search keyword as string. Example: "chatbot"',
                 },
                 fields: {
                     type: 'array',
@@ -226,57 +411,7 @@ exports.n8nDocumentationToolsFinal = [
                         type: 'string',
                         enum: ['id', 'name', 'description', 'author', 'nodes', 'views', 'created', 'url', 'metadata'],
                     },
-                    description: 'For searchMode=keyword: fields to include in response. Default: all fields.',
-                },
-                nodeTypes: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    description: 'For searchMode=by_nodes: array of node types (e.g., ["n8n-nodes-base.httpRequest", "n8n-nodes-base.slack"])',
-                },
-                task: {
-                    type: 'string',
-                    enum: [
-                        'ai_automation',
-                        'data_sync',
-                        'webhook_processing',
-                        'email_automation',
-                        'slack_integration',
-                        'data_transformation',
-                        'file_processing',
-                        'scheduling',
-                        'api_integration',
-                        'database_operations'
-                    ],
-                    description: 'For searchMode=by_task: the type of task',
-                },
-                category: {
-                    type: 'string',
-                    description: 'For searchMode=by_metadata: filter by category (e.g., "automation", "integration")',
-                },
-                complexity: {
-                    type: 'string',
-                    enum: ['simple', 'medium', 'complex'],
-                    description: 'For searchMode=by_metadata: filter by complexity level',
-                },
-                maxSetupMinutes: {
-                    type: 'number',
-                    description: 'For searchMode=by_metadata: maximum setup time in minutes',
-                    minimum: 5,
-                    maximum: 480,
-                },
-                minSetupMinutes: {
-                    type: 'number',
-                    description: 'For searchMode=by_metadata: minimum setup time in minutes',
-                    minimum: 5,
-                    maximum: 480,
-                },
-                requiredService: {
-                    type: 'string',
-                    description: 'For searchMode=by_metadata: filter by required service (e.g., "openai", "slack")',
-                },
-                targetAudience: {
-                    type: 'string',
-                    description: 'For searchMode=by_metadata: filter by target audience (e.g., "developers", "marketers")',
+                    description: 'Fields to include in response. Default: all fields. Example: ["id", "name"] for minimal response.',
                 },
                 limit: {
                     type: 'number',
@@ -292,6 +427,98 @@ exports.n8nDocumentationToolsFinal = [
                     minimum: 0,
                 },
             },
+            required: ['query'],
+        },
+    },
+    {
+        name: 'get_templates_for_task',
+        description: `Curated templates by task. Returns paginated results sorted by popularity.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                task: {
+                    type: 'string',
+                    enum: [
+                        'ai_automation',
+                        'data_sync',
+                        'webhook_processing',
+                        'email_automation',
+                        'slack_integration',
+                        'data_transformation',
+                        'file_processing',
+                        'scheduling',
+                        'api_integration',
+                        'database_operations'
+                    ],
+                    description: 'The type of task to get templates for',
+                },
+                limit: {
+                    type: 'number',
+                    description: 'Maximum number of results. Default 10.',
+                    default: 10,
+                    minimum: 1,
+                    maximum: 100,
+                },
+                offset: {
+                    type: 'number',
+                    description: 'Pagination offset. Default 0.',
+                    default: 0,
+                    minimum: 0,
+                },
+            },
+            required: ['task'],
+        },
+    },
+    {
+        name: 'search_templates_by_metadata',
+        description: `Search templates by AI-generated metadata. Filter by category, complexity, setup time, services, or audience. Returns rich metadata for smart template discovery.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                category: {
+                    type: 'string',
+                    description: 'Filter by category (e.g., "automation", "integration", "data processing")',
+                },
+                complexity: {
+                    type: 'string',
+                    enum: ['simple', 'medium', 'complex'],
+                    description: 'Filter by complexity level',
+                },
+                maxSetupMinutes: {
+                    type: 'number',
+                    description: 'Maximum setup time in minutes',
+                    minimum: 5,
+                    maximum: 480,
+                },
+                minSetupMinutes: {
+                    type: 'number',
+                    description: 'Minimum setup time in minutes',
+                    minimum: 5,
+                    maximum: 480,
+                },
+                requiredService: {
+                    type: 'string',
+                    description: 'Filter by required service (e.g., "openai", "slack", "google")',
+                },
+                targetAudience: {
+                    type: 'string',
+                    description: 'Filter by target audience (e.g., "developers", "marketers", "analysts")',
+                },
+                limit: {
+                    type: 'number',
+                    description: 'Maximum number of results. Default 20.',
+                    default: 20,
+                    minimum: 1,
+                    maximum: 100,
+                },
+                offset: {
+                    type: 'number',
+                    description: 'Pagination offset. Default 0.',
+                    default: 0,
+                    minimum: 0,
+                },
+            },
+            additionalProperties: false,
         },
     },
     {
@@ -377,6 +604,107 @@ exports.n8nDocumentationToolsFinal = [
                 suggestions: { type: 'array', items: { type: 'string' } }
             },
             required: ['valid', 'summary']
+        },
+    },
+    {
+        name: 'validate_workflow_connections',
+        description: `Check workflow connections only: valid nodes, no cycles, proper triggers, AI tool links. Fast structure validation.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                workflow: {
+                    type: 'object',
+                    description: 'The workflow JSON with nodes array and connections object.',
+                },
+            },
+            required: ['workflow'],
+            additionalProperties: false,
+        },
+        outputSchema: {
+            type: 'object',
+            properties: {
+                valid: { type: 'boolean' },
+                statistics: {
+                    type: 'object',
+                    properties: {
+                        totalNodes: { type: 'number' },
+                        triggerNodes: { type: 'number' },
+                        validConnections: { type: 'number' },
+                        invalidConnections: { type: 'number' }
+                    }
+                },
+                errors: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            node: { type: 'string' },
+                            message: { type: 'string' }
+                        }
+                    }
+                },
+                warnings: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            node: { type: 'string' },
+                            message: { type: 'string' }
+                        }
+                    }
+                }
+            },
+            required: ['valid', 'statistics']
+        },
+    },
+    {
+        name: 'validate_workflow_expressions',
+        description: `Validate n8n expressions: syntax {{}}, variables ($json/$node), references. Returns errors with locations.`,
+        inputSchema: {
+            type: 'object',
+            properties: {
+                workflow: {
+                    type: 'object',
+                    description: 'The workflow JSON to check for expression errors.',
+                },
+            },
+            required: ['workflow'],
+            additionalProperties: false,
+        },
+        outputSchema: {
+            type: 'object',
+            properties: {
+                valid: { type: 'boolean' },
+                statistics: {
+                    type: 'object',
+                    properties: {
+                        totalNodes: { type: 'number' },
+                        expressionsValidated: { type: 'number' }
+                    }
+                },
+                errors: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            node: { type: 'string' },
+                            message: { type: 'string' }
+                        }
+                    }
+                },
+                warnings: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            node: { type: 'string' },
+                            message: { type: 'string' }
+                        }
+                    }
+                },
+                tips: { type: 'array', items: { type: 'string' } }
+            },
+            required: ['valid', 'statistics']
         },
     },
 ];

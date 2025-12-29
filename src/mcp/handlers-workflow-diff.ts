@@ -14,22 +14,6 @@ import { InstanceContext } from '../types/instance-context';
 import { validateWorkflowStructure } from '../services/n8n-validation';
 import { NodeRepository } from '../database/node-repository';
 import { WorkflowVersioningService } from '../services/workflow-versioning-service';
-import { WorkflowValidator } from '../services/workflow-validator';
-import { EnhancedConfigValidator } from '../services/enhanced-config-validator';
-
-// Cached validator instance to avoid recreating on every mutation
-let cachedValidator: WorkflowValidator | null = null;
-
-/**
- * Get or create cached workflow validator instance
- * Reuses the same validator to avoid redundant NodeSimilarityService initialization
- */
-function getValidator(repository: NodeRepository): WorkflowValidator {
-  if (!cachedValidator) {
-    cachedValidator = new WorkflowValidator(repository, EnhancedConfigValidator);
-  }
-  return cachedValidator;
-}
 
 // Zod schema for the diff request
 const workflowDiffSchema = z.object({
@@ -67,7 +51,6 @@ const workflowDiffSchema = z.object({
   validateOnly: z.boolean().optional(),
   continueOnError: z.boolean().optional(),
   createBackup: z.boolean().optional(),
-  intent: z.string().optional(),
 });
 
 export async function handleUpdatePartialWorkflow(
@@ -75,26 +58,20 @@ export async function handleUpdatePartialWorkflow(
   repository: NodeRepository,
   context?: InstanceContext
 ): Promise<McpToolResponse> {
-  const startTime = Date.now();
-  const sessionId = `mutation_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-  let workflowBefore: any = null;
-  let validationBefore: any = null;
-  let validationAfter: any = null;
-
   try {
     // Debug logging (only in debug mode)
     if (process.env.DEBUG_MCP === 'true') {
       logger.debug('Workflow diff request received', {
         argsType: typeof args,
         hasWorkflowId: args && typeof args === 'object' && 'workflowId' in args,
-        operationCount: args && typeof args === 'object' && 'operations' in args ?
+        operationCount: args && typeof args === 'object' && 'operations' in args ? 
           (args as any).operations?.length : 0
       });
     }
-
+    
     // Validate input
     const input = workflowDiffSchema.parse(args);
-
+    
     // Get API client
     const client = getN8nApiClient(context);
     if (!client) {
@@ -103,31 +80,11 @@ export async function handleUpdatePartialWorkflow(
         error: 'n8n API not configured. Please set N8N_API_URL and N8N_API_KEY environment variables.'
       };
     }
-
+    
     // Fetch current workflow
     let workflow;
     try {
       workflow = await client.getWorkflow(input.id);
-      // Store original workflow for telemetry
-      workflowBefore = JSON.parse(JSON.stringify(workflow));
-
-      // Validate workflow BEFORE mutation (for telemetry)
-      try {
-        const validator = getValidator(repository);
-        validationBefore = await validator.validateWorkflow(workflowBefore, {
-          validateNodes: true,
-          validateConnections: true,
-          validateExpressions: true,
-          profile: 'runtime'
-        });
-      } catch (validationError) {
-        logger.debug('Pre-mutation validation failed (non-blocking):', validationError);
-        // Don't block mutation on validation errors
-        validationBefore = {
-          valid: false,
-          errors: [{ type: 'validation_error', message: 'Validation failed' }]
-        };
-      }
     } catch (error) {
       if (error instanceof N8nApiError) {
         return {
@@ -293,24 +250,6 @@ export async function handleUpdatePartialWorkflow(
       let finalWorkflow = updatedWorkflow;
       let activationMessage = '';
 
-      // Validate workflow AFTER mutation (for telemetry)
-      try {
-        const validator = getValidator(repository);
-        validationAfter = await validator.validateWorkflow(finalWorkflow, {
-          validateNodes: true,
-          validateConnections: true,
-          validateExpressions: true,
-          profile: 'runtime'
-        });
-      } catch (validationError) {
-        logger.debug('Post-mutation validation failed (non-blocking):', validationError);
-        // Don't block on validation errors
-        validationAfter = {
-          valid: false,
-          errors: [{ type: 'validation_error', message: 'Validation failed' }]
-        };
-      }
-
       if (diffResult.shouldActivate) {
         try {
           finalWorkflow = await client.activateWorkflow(input.id);
@@ -343,24 +282,6 @@ export async function handleUpdatePartialWorkflow(
         }
       }
 
-      // Track successful mutation
-      if (workflowBefore && !input.validateOnly) {
-        trackWorkflowMutation({
-          sessionId,
-          toolName: 'n8n_update_partial_workflow',
-          userIntent: input.intent || 'Partial workflow update',
-          operations: input.operations,
-          workflowBefore,
-          workflowAfter: finalWorkflow,
-          validationBefore,
-          validationAfter,
-          mutationSuccess: true,
-          durationMs: Date.now() - startTime,
-        }).catch(err => {
-          logger.debug('Failed to track mutation telemetry:', err);
-        });
-      }
-
       return {
         success: true,
         data: finalWorkflow,
@@ -377,25 +298,6 @@ export async function handleUpdatePartialWorkflow(
         }
       };
     } catch (error) {
-      // Track failed mutation
-      if (workflowBefore && !input.validateOnly) {
-        trackWorkflowMutation({
-          sessionId,
-          toolName: 'n8n_update_partial_workflow',
-          userIntent: input.intent || 'Partial workflow update',
-          operations: input.operations,
-          workflowBefore,
-          workflowAfter: workflowBefore, // No change since it failed
-          validationBefore,
-          validationAfter: validationBefore, // Same as before since mutation failed
-          mutationSuccess: false,
-          mutationError: error instanceof Error ? error.message : 'Unknown error',
-          durationMs: Date.now() - startTime,
-        }).catch(err => {
-          logger.warn('Failed to track mutation telemetry for failed operation:', err);
-        });
-      }
-
       if (error instanceof N8nApiError) {
         return {
           success: false,
@@ -414,99 +316,12 @@ export async function handleUpdatePartialWorkflow(
         details: { errors: error.errors }
       };
     }
-
+    
     logger.error('Failed to update partial workflow', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred'
     };
-  }
-}
-
-/**
- * Infer intent from operations when not explicitly provided
- */
-function inferIntentFromOperations(operations: any[]): string {
-  if (!operations || operations.length === 0) {
-    return 'Partial workflow update';
-  }
-
-  const opTypes = operations.map((op) => op.type);
-  const opCount = operations.length;
-
-  // Single operation - be specific
-  if (opCount === 1) {
-    const op = operations[0];
-    switch (op.type) {
-      case 'addNode':
-        return `Add ${op.node?.type || 'node'}`;
-      case 'removeNode':
-        return `Remove node ${op.nodeName || op.nodeId || ''}`.trim();
-      case 'updateNode':
-        return `Update node ${op.nodeName || op.nodeId || ''}`.trim();
-      case 'addConnection':
-        return `Connect ${op.source || 'node'} to ${op.target || 'node'}`;
-      case 'removeConnection':
-        return `Disconnect ${op.source || 'node'} from ${op.target || 'node'}`;
-      case 'rewireConnection':
-        return `Rewire ${op.source || 'node'} from ${op.from || ''} to ${op.to || ''}`.trim();
-      case 'updateName':
-        return `Rename workflow to "${op.name || ''}"`;
-      case 'activateWorkflow':
-        return 'Activate workflow';
-      case 'deactivateWorkflow':
-        return 'Deactivate workflow';
-      default:
-        return `Workflow ${op.type}`;
-    }
-  }
-
-  // Multiple operations - summarize pattern
-  const typeSet = new Set(opTypes);
-  const summary: string[] = [];
-
-  if (typeSet.has('addNode')) {
-    const count = opTypes.filter((t) => t === 'addNode').length;
-    summary.push(`add ${count} node${count > 1 ? 's' : ''}`);
-  }
-  if (typeSet.has('removeNode')) {
-    const count = opTypes.filter((t) => t === 'removeNode').length;
-    summary.push(`remove ${count} node${count > 1 ? 's' : ''}`);
-  }
-  if (typeSet.has('updateNode')) {
-    const count = opTypes.filter((t) => t === 'updateNode').length;
-    summary.push(`update ${count} node${count > 1 ? 's' : ''}`);
-  }
-  if (typeSet.has('addConnection') || typeSet.has('rewireConnection')) {
-    summary.push('modify connections');
-  }
-  if (typeSet.has('updateName') || typeSet.has('updateSettings')) {
-    summary.push('update metadata');
-  }
-
-  return summary.length > 0
-    ? `Workflow update: ${summary.join(', ')}`
-    : `Workflow update: ${opCount} operations`;
-}
-
-/**
- * Track workflow mutation for telemetry
- */
-async function trackWorkflowMutation(data: any): Promise<void> {
-  try {
-    // Enhance intent if it's missing or generic
-    if (
-      !data.userIntent ||
-      data.userIntent === 'Partial workflow update' ||
-      data.userIntent.length < 10
-    ) {
-      data.userIntent = inferIntentFromOperations(data.operations);
-    }
-
-    const { telemetry } = await import('../telemetry/telemetry-manager.js');
-    await telemetry.trackWorkflowMutation(data);
-  } catch (error) {
-    logger.debug('Telemetry tracking failed:', error);
   }
 }
 

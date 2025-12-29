@@ -556,7 +556,7 @@ class WorkflowDiffEngine {
         if (!sourceNode || !targetNode)
             return;
         const { sourceOutput, sourceIndex } = this.resolveSmartParameters(workflow, operation);
-        const targetInput = operation.targetInput ?? sourceOutput;
+        const targetInput = operation.targetInput ?? 'main';
         const targetIndex = operation.targetIndex ?? 0;
         if (!workflow.connections[sourceNode.name]) {
             workflow.connections[sourceNode.name] = {};
@@ -622,12 +622,10 @@ class WorkflowDiffEngine {
         });
     }
     applyUpdateSettings(workflow, operation) {
-        if (operation.settings && Object.keys(operation.settings).length > 0) {
-            if (!workflow.settings) {
-                workflow.settings = {};
-            }
-            Object.assign(workflow.settings, operation.settings);
+        if (!workflow.settings) {
+            workflow.settings = {};
         }
+        Object.assign(workflow.settings, operation.settings);
     }
     applyUpdateName(workflow, operation) {
         workflow.name = operation.name;

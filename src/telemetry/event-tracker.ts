@@ -4,7 +4,7 @@
  * Now uses shared sanitization utilities to avoid code duplication
  */
 
-import { TelemetryEvent, WorkflowTelemetry, WorkflowMutationRecord } from './telemetry-types';
+import { TelemetryEvent, WorkflowTelemetry } from './telemetry-types';
 import { WorkflowSanitizer } from './workflow-sanitizer';
 import { TelemetryRateLimiter } from './rate-limiter';
 import { TelemetryEventValidator } from './event-validator';
@@ -19,7 +19,6 @@ export class TelemetryEventTracker {
   private validator: TelemetryEventValidator;
   private eventQueue: TelemetryEvent[] = [];
   private workflowQueue: WorkflowTelemetry[] = [];
-  private mutationQueue: WorkflowMutationRecord[] = [];
   private previousTool?: string;
   private previousToolTimestamp: number = 0;
   private performanceMetrics: Map<string, number[]> = new Map();
@@ -327,13 +326,6 @@ export class TelemetryEventTracker {
   }
 
   /**
-   * Get queued mutations
-   */
-  getMutationQueue(): WorkflowMutationRecord[] {
-    return [...this.mutationQueue];
-  }
-
-  /**
    * Clear event queue
    */
   clearEventQueue(): void {
@@ -348,28 +340,6 @@ export class TelemetryEventTracker {
   }
 
   /**
-   * Clear mutation queue
-   */
-  clearMutationQueue(): void {
-    this.mutationQueue = [];
-  }
-
-  /**
-   * Enqueue mutation for batch processing
-   */
-  enqueueMutation(mutation: WorkflowMutationRecord): void {
-    if (!this.isEnabled()) return;
-    this.mutationQueue.push(mutation);
-  }
-
-  /**
-   * Get mutation queue size
-   */
-  getMutationQueueSize(): number {
-    return this.mutationQueue.length;
-  }
-
-  /**
    * Get tracking statistics
    */
   getStats() {
@@ -378,7 +348,6 @@ export class TelemetryEventTracker {
       validator: this.validator.getStats(),
       eventQueueSize: this.eventQueue.length,
       workflowQueueSize: this.workflowQueue.length,
-      mutationQueueSize: this.mutationQueue.length,
       performanceMetrics: this.getPerformanceStats()
     };
   }

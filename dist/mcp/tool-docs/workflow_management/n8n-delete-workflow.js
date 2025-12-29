@@ -12,7 +12,7 @@ exports.n8nDeleteWorkflowDoc = {
         tips: [
             'Action is irreversible',
             'Deletes all execution history',
-            'Check workflow first with n8n_get_workflow({mode: "minimal"})'
+            'Check workflow first with get_minimal'
         ]
     },
     full: {
@@ -35,7 +35,7 @@ exports.n8nDeleteWorkflowDoc = {
         performance: 'Fast operation - typically 50-150ms. May take longer if workflow has extensive execution history.',
         bestPractices: [
             'Always confirm before deletion',
-            'Check workflow with n8n_get_workflow({mode: "minimal"}) first',
+            'Check workflow with get_minimal first',
             'Consider deactivating instead of deleting',
             'Export workflow before deletion for backup'
         ],
@@ -46,7 +46,7 @@ exports.n8nDeleteWorkflowDoc = {
             'Active workflows can be deleted',
             'No built-in confirmation'
         ],
-        relatedTools: ['n8n_get_workflow', 'n8n_list_workflows', 'n8n_update_partial_workflow', 'n8n_executions']
+        relatedTools: ['n8n_get_workflow_minimal', 'n8n_list_workflows', 'n8n_update_partial_workflow', 'n8n_delete_execution']
     }
 };
 //# sourceMappingURL=n8n-delete-workflow.js.map

@@ -67,28 +67,15 @@ class WorkflowSanitizer {
         }
         const sanitized = {};
         for (const [key, value] of Object.entries(obj)) {
-            const isSensitive = this.isSensitiveField(key);
-            const isUrlField = key.toLowerCase().includes('url') ||
-                key.toLowerCase().includes('endpoint') ||
-                key.toLowerCase().includes('webhook');
+            if (this.isSensitiveField(key)) {
+                sanitized[key] = '[REDACTED]';
+                continue;
+            }
             if (typeof value === 'object' && value !== null) {
-                if (isSensitive && !isUrlField) {
-                    sanitized[key] = '[REDACTED]';
-                }
-                else {
-                    sanitized[key] = this.sanitizeObject(value);
-                }
+                sanitized[key] = this.sanitizeObject(value);
             }
             else if (typeof value === 'string') {
-                if (isSensitive && !isUrlField) {
-                    sanitized[key] = '[REDACTED]';
-                }
-                else {
-                    sanitized[key] = this.sanitizeString(value, key);
-                }
-            }
-            else if (isSensitive) {
-                sanitized[key] = '[REDACTED]';
+                sanitized[key] = this.sanitizeString(value, key);
             }
             else {
                 sanitized[key] = value;
@@ -101,42 +88,17 @@ class WorkflowSanitizer {
             return 'https://[webhook-url]';
         }
         let sanitized = value;
-        for (const patternDef of this.SENSITIVE_PATTERNS) {
-            if (patternDef.placeholder.includes('WEBHOOK')) {
+        for (const pattern of this.SENSITIVE_PATTERNS) {
+            if (pattern.toString().includes('webhook')) {
                 continue;
             }
-            if (sanitized.includes('[REDACTED')) {
-                break;
-            }
-            if (patternDef.placeholder === '[REDACTED_URL_WITH_AUTH]') {
-                const matches = value.match(patternDef.pattern);
-                if (matches) {
-                    for (const match of matches) {
-                        const fullUrlMatch = value.indexOf(match);
-                        if (fullUrlMatch !== -1) {
-                            const afterUrl = value.substring(fullUrlMatch + match.length);
-                            if (afterUrl && afterUrl.startsWith('/')) {
-                                const pathPart = afterUrl.split(/[\s?&#]/)[0];
-                                sanitized = sanitized.replace(match + pathPart, patternDef.placeholder + pathPart);
-                            }
-                            else {
-                                sanitized = sanitized.replace(match, patternDef.placeholder);
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-            sanitized = sanitized.replace(patternDef.pattern, patternDef.placeholder);
+            sanitized = sanitized.replace(pattern, '[REDACTED]');
         }
         if (fieldName.toLowerCase().includes('url') ||
             fieldName.toLowerCase().includes('endpoint')) {
             if (sanitized.startsWith('http://') || sanitized.startsWith('https://')) {
-                if (sanitized.includes('[REDACTED_URL_WITH_AUTH]')) {
-                    return sanitized;
-                }
                 if (sanitized.includes('[REDACTED]')) {
-                    return sanitized;
+                    return '[REDACTED]';
                 }
                 const urlParts = sanitized.split('/');
                 if (urlParts.length > 2) {
@@ -187,36 +149,22 @@ class WorkflowSanitizer {
         const sanitized = this.sanitizeWorkflow(workflow);
         return sanitized.workflowHash;
     }
-    static sanitizeWorkflowRaw(workflow) {
-        const sanitized = JSON.parse(JSON.stringify(workflow));
-        if (sanitized.nodes && Array.isArray(sanitized.nodes)) {
-            sanitized.nodes = sanitized.nodes.map((node) => this.sanitizeNode(node));
-        }
-        if (sanitized.connections) {
-            sanitized.connections = this.sanitizeConnections(sanitized.connections);
-        }
-        delete sanitized.settings?.errorWorkflow;
-        delete sanitized.staticData;
-        delete sanitized.pinData;
-        delete sanitized.credentials;
-        delete sanitized.sharedWorkflows;
-        delete sanitized.ownedBy;
-        delete sanitized.createdBy;
-        delete sanitized.updatedBy;
-        return sanitized;
-    }
 }
 exports.WorkflowSanitizer = WorkflowSanitizer;
 WorkflowSanitizer.SENSITIVE_PATTERNS = [
-    { pattern: /https?:\/\/[^\s/]+\/webhook\/[^\s]+/g, placeholder: '[REDACTED_WEBHOOK]' },
-    { pattern: /https?:\/\/[^\s/]+\/hook\/[^\s]+/g, placeholder: '[REDACTED_WEBHOOK]' },
-    { pattern: /https?:\/\/[^:]+:[^@]+@[^\s/]+/g, placeholder: '[REDACTED_URL_WITH_AUTH]' },
-    { pattern: /wss?:\/\/[^:]+:[^@]+@[^\s/]+/g, placeholder: '[REDACTED_URL_WITH_AUTH]' },
-    { pattern: /(?:postgres|mysql|mongodb|redis):\/\/[^:]+:[^@]+@[^\s]+/g, placeholder: '[REDACTED_URL_WITH_AUTH]' },
-    { pattern: /sk-[a-zA-Z0-9]{16,}/g, placeholder: '[REDACTED_APIKEY]' },
-    { pattern: /Bearer\s+[^\s]+/gi, placeholder: 'Bearer [REDACTED]', preservePrefix: true },
-    { pattern: /\b[a-zA-Z0-9_-]{32,}\b/g, placeholder: '[REDACTED_TOKEN]' },
-    { pattern: /\b[a-zA-Z0-9_-]{20,31}\b/g, placeholder: '[REDACTED]' },
+    /https?:\/\/[^\s/]+\/webhook\/[^\s]+/g,
+    /https?:\/\/[^\s/]+\/hook\/[^\s]+/g,
+    /sk-[a-zA-Z0-9]{16,}/g,
+    /Bearer\s+[^\s]+/gi,
+    /[a-zA-Z0-9_-]{20,}/g,
+    /token['":\s]+[^,}]+/gi,
+    /apikey['":\s]+[^,}]+/gi,
+    /api_key['":\s]+[^,}]+/gi,
+    /secret['":\s]+[^,}]+/gi,
+    /password['":\s]+[^,}]+/gi,
+    /credential['":\s]+[^,}]+/gi,
+    /https?:\/\/[^:]+:[^@]+@[^\s/]+/g,
+    /wss?:\/\/[^:]+:[^@]+@[^\s/]+/g,
 ];
 WorkflowSanitizer.SENSITIVE_FIELDS = [
     'apiKey',

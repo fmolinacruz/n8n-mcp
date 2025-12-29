@@ -2,7 +2,6 @@ import { N8nApiClient } from '../services/n8n-api-client';
 import { McpToolResponse } from '../types/n8n-api';
 import { NodeRepository } from '../database/node-repository';
 import { InstanceContext } from '../types/instance-context';
-import { TemplateService } from '../templates/template-service';
 export declare function getInstanceCacheStatistics(): string;
 export declare function getInstanceCacheMetrics(): import("../utils/cache-utils").CacheMetrics;
 export declare function clearInstanceCache(): void;
@@ -17,13 +16,12 @@ export declare function handleDeleteWorkflow(args: unknown, context?: InstanceCo
 export declare function handleListWorkflows(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleValidateWorkflow(args: unknown, repository: NodeRepository, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleAutofixWorkflow(args: unknown, repository: NodeRepository, context?: InstanceContext): Promise<McpToolResponse>;
-export declare function handleTestWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleTriggerWebhookWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleGetExecution(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleListExecutions(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleDeleteExecution(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleHealthCheck(context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleListAvailableTools(context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleDiagnostic(request: any, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleWorkflowVersions(args: unknown, repository: NodeRepository, context?: InstanceContext): Promise<McpToolResponse>;
-export declare function handleDeployTemplate(args: unknown, templateService: TemplateService, repository: NodeRepository, context?: InstanceContext): Promise<McpToolResponse>;
-export declare function handleTriggerWebhookWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 //# sourceMappingURL=handlers-n8n-manager.d.ts.map

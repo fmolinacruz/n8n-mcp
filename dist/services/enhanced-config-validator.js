@@ -7,7 +7,6 @@ const fixed_collection_validator_1 = require("../utils/fixed-collection-validato
 const operation_similarity_service_1 = require("./operation-similarity-service");
 const resource_similarity_service_1 = require("./resource-similarity-service");
 const node_type_normalizer_1 = require("../utils/node-type-normalizer");
-const type_structure_service_1 = require("./type-structure-service");
 class EnhancedConfigValidator extends config_validator_1.ConfigValidator {
     static initializeSimilarityServices(repository) {
         this.nodeRepository = repository;
@@ -40,7 +39,7 @@ class EnhancedConfigValidator extends config_validator_1.ConfigValidator {
             suggestions: baseResult.suggestions || []
         };
         this.applyProfileFilters(enhancedResult, profile);
-        this.addOperationSpecificEnhancements(nodeType, config, filteredProperties, enhancedResult);
+        this.addOperationSpecificEnhancements(nodeType, config, enhancedResult);
         enhancedResult.errors = this.deduplicateErrors(enhancedResult.errors);
         enhancedResult.nextSteps = this.generateNextSteps(enhancedResult);
         enhancedResult.valid = enhancedResult.errors.length === 0;
@@ -110,7 +109,7 @@ class EnhancedConfigValidator extends config_validator_1.ConfigValidator {
         }
         return true;
     }
-    static addOperationSpecificEnhancements(nodeType, config, properties, result) {
+    static addOperationSpecificEnhancements(nodeType, config, result) {
         if (typeof nodeType !== 'string') {
             result.errors.push({
                 type: 'invalid_type',
@@ -121,7 +120,6 @@ class EnhancedConfigValidator extends config_validator_1.ConfigValidator {
             return;
         }
         this.validateResourceAndOperation(nodeType, config, result);
-        this.validateSpecialTypeStructures(config, properties, result);
         this.validateFixedCollectionStructures(nodeType, config, result);
         const context = {
             config,
@@ -566,218 +564,6 @@ class EnhancedConfigValidator extends config_validator_1.ConfigValidator {
                         result.suggestions.push(`Operation "${config.operation}" not found. Did you mean "${suggestion.value}"? ${suggestion.reason}`);
                     }
                 }
-            }
-        }
-    }
-    static validateSpecialTypeStructures(config, properties, result) {
-        for (const [key, value] of Object.entries(config)) {
-            if (value === undefined || value === null)
-                continue;
-            const propDef = properties.find(p => p.name === key);
-            if (!propDef)
-                continue;
-            let structureType = null;
-            if (propDef.type === 'filter') {
-                structureType = 'filter';
-            }
-            else if (propDef.type === 'resourceMapper') {
-                structureType = 'resourceMapper';
-            }
-            else if (propDef.type === 'assignmentCollection') {
-                structureType = 'assignmentCollection';
-            }
-            else if (propDef.type === 'resourceLocator') {
-                structureType = 'resourceLocator';
-            }
-            if (!structureType)
-                continue;
-            const structure = type_structure_service_1.TypeStructureService.getStructure(structureType);
-            if (!structure) {
-                console.warn(`No structure definition found for type: ${structureType}`);
-                continue;
-            }
-            const validationResult = type_structure_service_1.TypeStructureService.validateTypeCompatibility(value, structureType);
-            if (!validationResult.valid) {
-                for (const error of validationResult.errors) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: key,
-                        message: error,
-                        fix: `Ensure ${key} follows the expected structure for ${structureType} type. Example: ${JSON.stringify(structure.example)}`
-                    });
-                }
-            }
-            for (const warning of validationResult.warnings) {
-                result.warnings.push({
-                    type: 'best_practice',
-                    property: key,
-                    message: warning
-                });
-            }
-            if (typeof value === 'object' && value !== null) {
-                this.validateComplexTypeStructure(key, value, structureType, structure, result);
-            }
-            if (structureType === 'filter' && value.conditions) {
-                this.validateFilterOperations(value.conditions, key, result);
-            }
-        }
-    }
-    static validateComplexTypeStructure(propertyName, value, type, structure, result) {
-        switch (type) {
-            case 'filter':
-                if (!value.combinator) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.combinator`,
-                        message: 'Filter must have a combinator field',
-                        fix: 'Add combinator: "and" or combinator: "or" to the filter configuration'
-                    });
-                }
-                else if (value.combinator !== 'and' && value.combinator !== 'or') {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.combinator`,
-                        message: `Invalid combinator value: ${value.combinator}. Must be "and" or "or"`,
-                        fix: 'Set combinator to either "and" or "or"'
-                    });
-                }
-                if (!value.conditions) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.conditions`,
-                        message: 'Filter must have a conditions field',
-                        fix: 'Add conditions array to the filter configuration'
-                    });
-                }
-                else if (!Array.isArray(value.conditions)) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.conditions`,
-                        message: 'Filter conditions must be an array',
-                        fix: 'Ensure conditions is an array of condition objects'
-                    });
-                }
-                break;
-            case 'resourceLocator':
-                if (!value.mode) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.mode`,
-                        message: 'ResourceLocator must have a mode field',
-                        fix: 'Add mode: "id", mode: "url", or mode: "list" to the resourceLocator configuration'
-                    });
-                }
-                else if (!['id', 'url', 'list', 'name'].includes(value.mode)) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.mode`,
-                        message: `Invalid mode value: ${value.mode}. Must be "id", "url", "list", or "name"`,
-                        fix: 'Set mode to one of: "id", "url", "list", "name"'
-                    });
-                }
-                if (!value.hasOwnProperty('value')) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.value`,
-                        message: 'ResourceLocator must have a value field',
-                        fix: 'Add value field to the resourceLocator configuration'
-                    });
-                }
-                break;
-            case 'assignmentCollection':
-                if (!value.assignments) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.assignments`,
-                        message: 'AssignmentCollection must have an assignments field',
-                        fix: 'Add assignments array to the assignmentCollection configuration'
-                    });
-                }
-                else if (!Array.isArray(value.assignments)) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.assignments`,
-                        message: 'AssignmentCollection assignments must be an array',
-                        fix: 'Ensure assignments is an array of assignment objects'
-                    });
-                }
-                break;
-            case 'resourceMapper':
-                if (!value.mappingMode) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.mappingMode`,
-                        message: 'ResourceMapper must have a mappingMode field',
-                        fix: 'Add mappingMode: "defineBelow" or mappingMode: "autoMapInputData"'
-                    });
-                }
-                else if (!['defineBelow', 'autoMapInputData'].includes(value.mappingMode)) {
-                    result.errors.push({
-                        type: 'invalid_configuration',
-                        property: `${propertyName}.mappingMode`,
-                        message: `Invalid mappingMode: ${value.mappingMode}. Must be "defineBelow" or "autoMapInputData"`,
-                        fix: 'Set mappingMode to either "defineBelow" or "autoMapInputData"'
-                    });
-                }
-                break;
-        }
-    }
-    static validateFilterOperations(conditions, propertyName, result) {
-        if (!Array.isArray(conditions))
-            return;
-        const VALID_OPERATIONS_BY_TYPE = {
-            string: [
-                'empty', 'notEmpty', 'equals', 'notEquals',
-                'contains', 'notContains', 'startsWith', 'notStartsWith',
-                'endsWith', 'notEndsWith', 'regex', 'notRegex',
-                'exists', 'notExists', 'isNotEmpty'
-            ],
-            number: [
-                'empty', 'notEmpty', 'equals', 'notEquals', 'gt', 'lt', 'gte', 'lte',
-                'exists', 'notExists', 'isNotEmpty'
-            ],
-            dateTime: [
-                'empty', 'notEmpty', 'equals', 'notEquals', 'after', 'before', 'afterOrEquals', 'beforeOrEquals',
-                'exists', 'notExists', 'isNotEmpty'
-            ],
-            boolean: [
-                'empty', 'notEmpty', 'true', 'false', 'equals', 'notEquals',
-                'exists', 'notExists', 'isNotEmpty'
-            ],
-            array: [
-                'contains', 'notContains', 'lengthEquals', 'lengthNotEquals',
-                'lengthGt', 'lengthLt', 'lengthGte', 'lengthLte', 'empty', 'notEmpty',
-                'exists', 'notExists', 'isNotEmpty'
-            ],
-            object: [
-                'empty', 'notEmpty',
-                'exists', 'notExists', 'isNotEmpty'
-            ],
-            any: ['exists', 'notExists', 'isNotEmpty']
-        };
-        for (let i = 0; i < conditions.length; i++) {
-            const condition = conditions[i];
-            if (!condition.operator || typeof condition.operator !== 'object')
-                continue;
-            const { type, operation } = condition.operator;
-            if (!type || !operation)
-                continue;
-            const validOperations = VALID_OPERATIONS_BY_TYPE[type];
-            if (!validOperations) {
-                result.warnings.push({
-                    type: 'best_practice',
-                    property: `${propertyName}.conditions[${i}].operator.type`,
-                    message: `Unknown operator type: ${type}`
-                });
-                continue;
-            }
-            if (!validOperations.includes(operation)) {
-                result.errors.push({
-                    type: 'invalid_value',
-                    property: `${propertyName}.conditions[${i}].operator.operation`,
-                    message: `Operation '${operation}' is not valid for type '${type}'`,
-                    fix: `Use one of the valid operations for ${type}: ${validOperations.join(', ')}`
-                });
             }
         }
     }

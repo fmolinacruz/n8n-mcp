@@ -15,7 +15,6 @@ class TelemetryEventTracker {
         this.isEnabled = isEnabled;
         this.eventQueue = [];
         this.workflowQueue = [];
-        this.mutationQueue = [];
         this.previousToolTimestamp = 0;
         this.performanceMetrics = new Map();
         this.rateLimiter = new rate_limiter_1.TelemetryRateLimiter();
@@ -229,25 +228,11 @@ class TelemetryEventTracker {
     getWorkflowQueue() {
         return [...this.workflowQueue];
     }
-    getMutationQueue() {
-        return [...this.mutationQueue];
-    }
     clearEventQueue() {
         this.eventQueue = [];
     }
     clearWorkflowQueue() {
         this.workflowQueue = [];
-    }
-    clearMutationQueue() {
-        this.mutationQueue = [];
-    }
-    enqueueMutation(mutation) {
-        if (!this.isEnabled())
-            return;
-        this.mutationQueue.push(mutation);
-    }
-    getMutationQueueSize() {
-        return this.mutationQueue.length;
     }
     getStats() {
         return {
@@ -255,7 +240,6 @@ class TelemetryEventTracker {
             validator: this.validator.getStats(),
             eventQueueSize: this.eventQueue.length,
             workflowQueueSize: this.workflowQueue.length,
-            mutationQueueSize: this.mutationQueue.length,
             performanceMetrics: this.getPerformanceStats()
         };
     }

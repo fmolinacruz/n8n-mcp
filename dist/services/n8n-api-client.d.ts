@@ -1,4 +1,4 @@
-import { Workflow, WorkflowListParams, WorkflowListResponse, Execution, ExecutionListParams, ExecutionListResponse, Credential, CredentialListParams, CredentialListResponse, Tag, TagListParams, TagListResponse, HealthCheckResponse, N8nVersionInfo, Variable, WebhookRequest, SourceControlStatus, SourceControlPullResult, SourceControlPushResult } from '../types/n8n-api';
+import { Workflow, WorkflowListParams, WorkflowListResponse, Execution, ExecutionListParams, ExecutionListResponse, Credential, CredentialListParams, CredentialListResponse, Tag, TagListParams, TagListResponse, HealthCheckResponse, Variable, WebhookRequest, SourceControlStatus, SourceControlPullResult, SourceControlPushResult } from '../types/n8n-api';
 export interface N8nApiClientConfig {
     baseUrl: string;
     apiKey: string;
@@ -8,13 +8,7 @@ export interface N8nApiClientConfig {
 export declare class N8nApiClient {
     private client;
     private maxRetries;
-    private baseUrl;
-    private versionInfo;
-    private versionPromise;
     constructor(config: N8nApiClientConfig);
-    getVersion(): Promise<N8nVersionInfo | null>;
-    private fetchVersionOnce;
-    getCachedVersionInfo(): N8nVersionInfo | null;
     healthCheck(): Promise<HealthCheckResponse>;
     createWorkflow(workflow: Partial<Workflow>): Promise<Workflow>;
     getWorkflow(id: string): Promise<Workflow>;

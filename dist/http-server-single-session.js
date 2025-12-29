@@ -24,7 +24,7 @@ const protocol_version_1 = require("./utils/protocol-version");
 const instance_context_1 = require("./types/instance-context");
 dotenv_1.default.config();
 const DEFAULT_PROTOCOL_VERSION = protocol_version_1.STANDARD_PROTOCOL_VERSION;
-const MAX_SESSIONS = Math.max(1, parseInt(process.env.N8N_MCP_MAX_SESSIONS || '100', 10));
+const MAX_SESSIONS = 100;
 const SESSION_CLEANUP_INTERVAL = 5 * 60 * 1000;
 function extractMultiTenantHeaders(req) {
     return {
@@ -33,15 +33,6 @@ function extractMultiTenantHeaders(req) {
         'x-instance-id': req.headers['x-instance-id'],
         'x-session-id': req.headers['x-session-id'],
     };
-}
-function logSecurityEvent(event, details) {
-    const timestamp = new Date().toISOString();
-    const logEntry = {
-        timestamp,
-        event,
-        ...details
-    };
-    logger_1.logger.info(`[SECURITY] ${event}`, logEntry);
 }
 class SingleSessionHTTPServer {
     constructor() {
@@ -100,18 +91,13 @@ class SingleSessionHTTPServer {
     }
     async removeSession(sessionId, reason) {
         try {
-            const transport = this.transports[sessionId];
-            const server = this.servers[sessionId];
-            delete this.transports[sessionId];
+            if (this.transports[sessionId]) {
+                await this.transports[sessionId].close();
+                delete this.transports[sessionId];
+            }
             delete this.servers[sessionId];
             delete this.sessionMetadata[sessionId];
             delete this.sessionContexts[sessionId];
-            if (server) {
-                await server.close();
-            }
-            if (transport) {
-                await transport.close();
-            }
             logger_1.logger.info('Session removed', { sessionId, reason });
         }
         catch (error) {
@@ -464,12 +450,6 @@ class SingleSessionHTTPServer {
         if (!this.session)
             return true;
         return Date.now() - this.session.lastAccess.getTime() > this.sessionTimeout;
-    }
-    isSessionExpired(sessionId) {
-        const metadata = this.sessionMetadata[sessionId];
-        if (!metadata)
-            return true;
-        return Date.now() - metadata.lastAccess.getTime() > this.sessionTimeout;
     }
     async start() {
         const app = (0, express_1.default)();
@@ -1037,114 +1017,6 @@ class SingleSessionHTTPServer {
                 sessionIds: Object.keys(this.transports)
             }
         };
-    }
-    exportSessionState() {
-        const sessions = [];
-        const seenSessionIds = new Set();
-        for (const sessionId of Object.keys(this.sessionMetadata)) {
-            if (seenSessionIds.has(sessionId)) {
-                logger_1.logger.warn(`Duplicate sessionId detected during export: ${sessionId}`);
-                continue;
-            }
-            if (this.isSessionExpired(sessionId)) {
-                continue;
-            }
-            const metadata = this.sessionMetadata[sessionId];
-            const context = this.sessionContexts[sessionId];
-            if (!context || !context.n8nApiUrl || !context.n8nApiKey) {
-                logger_1.logger.debug(`Skipping session ${sessionId} - missing required context`);
-                continue;
-            }
-            seenSessionIds.add(sessionId);
-            sessions.push({
-                sessionId,
-                metadata: {
-                    createdAt: metadata.createdAt.toISOString(),
-                    lastAccess: metadata.lastAccess.toISOString()
-                },
-                context: {
-                    n8nApiUrl: context.n8nApiUrl,
-                    n8nApiKey: context.n8nApiKey,
-                    instanceId: context.instanceId || sessionId,
-                    sessionId: context.sessionId,
-                    metadata: context.metadata
-                }
-            });
-        }
-        logger_1.logger.info(`Exported ${sessions.length} session(s) for persistence`);
-        logSecurityEvent('session_export', { count: sessions.length });
-        return sessions;
-    }
-    restoreSessionState(sessions) {
-        let restoredCount = 0;
-        for (const sessionState of sessions) {
-            try {
-                if (!sessionState || typeof sessionState !== 'object' || !sessionState.sessionId) {
-                    logger_1.logger.warn('Skipping invalid session state object');
-                    continue;
-                }
-                if (Object.keys(this.sessionMetadata).length >= MAX_SESSIONS) {
-                    logger_1.logger.warn(`Reached MAX_SESSIONS limit (${MAX_SESSIONS}), skipping remaining sessions`);
-                    logSecurityEvent('max_sessions_reached', { count: MAX_SESSIONS });
-                    break;
-                }
-                if (this.sessionMetadata[sessionState.sessionId]) {
-                    logger_1.logger.debug(`Skipping session ${sessionState.sessionId} - already exists`);
-                    continue;
-                }
-                const createdAt = new Date(sessionState.metadata.createdAt);
-                const lastAccess = new Date(sessionState.metadata.lastAccess);
-                if (isNaN(createdAt.getTime()) || isNaN(lastAccess.getTime())) {
-                    logger_1.logger.warn(`Skipping session ${sessionState.sessionId} - invalid date format`);
-                    continue;
-                }
-                const age = Date.now() - lastAccess.getTime();
-                if (age > this.sessionTimeout) {
-                    logger_1.logger.debug(`Skipping session ${sessionState.sessionId} - expired (age: ${Math.round(age / 1000)}s)`);
-                    continue;
-                }
-                if (!sessionState.context) {
-                    logger_1.logger.warn(`Skipping session ${sessionState.sessionId} - missing context`);
-                    continue;
-                }
-                const validation = (0, instance_context_1.validateInstanceContext)(sessionState.context);
-                if (!validation.valid) {
-                    const reason = validation.errors?.join(', ') || 'invalid context';
-                    logger_1.logger.warn(`Skipping session ${sessionState.sessionId} - invalid context: ${reason}`);
-                    logSecurityEvent('session_restore_failed', {
-                        sessionId: sessionState.sessionId,
-                        reason
-                    });
-                    continue;
-                }
-                this.sessionMetadata[sessionState.sessionId] = {
-                    createdAt,
-                    lastAccess
-                };
-                this.sessionContexts[sessionState.sessionId] = {
-                    n8nApiUrl: sessionState.context.n8nApiUrl,
-                    n8nApiKey: sessionState.context.n8nApiKey,
-                    instanceId: sessionState.context.instanceId,
-                    sessionId: sessionState.context.sessionId,
-                    metadata: sessionState.context.metadata
-                };
-                logger_1.logger.debug(`Restored session ${sessionState.sessionId}`);
-                logSecurityEvent('session_restore', {
-                    sessionId: sessionState.sessionId,
-                    instanceId: sessionState.context.instanceId
-                });
-                restoredCount++;
-            }
-            catch (error) {
-                logger_1.logger.error(`Failed to restore session ${sessionState.sessionId}:`, error);
-                logSecurityEvent('session_restore_failed', {
-                    sessionId: sessionState.sessionId,
-                    reason: error instanceof Error ? error.message : 'unknown error'
-                });
-            }
-        }
-        logger_1.logger.info(`Restored ${restoredCount}/${sessions.length} session(s) from persistence`);
-        return restoredCount;
     }
 }
 exports.SingleSessionHTTPServer = SingleSessionHTTPServer;

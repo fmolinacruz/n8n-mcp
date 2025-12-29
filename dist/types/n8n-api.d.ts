@@ -22,7 +22,6 @@ export interface WorkflowNode {
     waitBetweenTries?: number;
     alwaysOutputData?: boolean;
     executeOnce?: boolean;
-    webhookId?: string;
 }
 export interface WorkflowConnection {
     [sourceNodeId: string]: {
@@ -46,7 +45,6 @@ export interface WorkflowSettings {
 export interface Workflow {
     id?: string;
     name: string;
-    description?: string;
     nodes: WorkflowNode[];
     connections: WorkflowConnection;
     active?: boolean;
@@ -191,21 +189,6 @@ export interface HealthCheckResponse {
         workers?: boolean;
         [key: string]: boolean | undefined;
     };
-}
-export interface N8nVersionInfo {
-    version: string;
-    major: number;
-    minor: number;
-    patch: number;
-}
-export interface N8nSettingsData {
-    n8nVersion?: string;
-    versionCli?: string;
-    instanceId?: string;
-    [key: string]: unknown;
-}
-export interface N8nSettingsResponse {
-    data?: N8nSettingsData;
 }
 export interface WorkflowListParams {
     limit?: number;

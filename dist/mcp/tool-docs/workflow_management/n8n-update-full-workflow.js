@@ -10,7 +10,6 @@ exports.n8nUpdateFullWorkflowDoc = {
         example: 'n8n_update_full_workflow({id: "wf_123", nodes: [...], connections: {...}})',
         performance: 'Network-dependent',
         tips: [
-            'Include intent parameter in every call - helps to return better responses',
             'Must provide complete workflow',
             'Use update_partial for small changes',
             'Validate before updating'
@@ -23,15 +22,13 @@ exports.n8nUpdateFullWorkflowDoc = {
             name: { type: 'string', description: 'New workflow name (optional)' },
             nodes: { type: 'array', description: 'Complete array of workflow nodes (required if modifying structure)' },
             connections: { type: 'object', description: 'Complete connections object (required if modifying structure)' },
-            settings: { type: 'object', description: 'Workflow settings to update (timezone, error handling, etc.)' },
-            intent: { type: 'string', description: 'Intent of the change - helps to return better response. Include in every tool call. Example: "Migrate workflow to new node versions".' }
+            settings: { type: 'object', description: 'Workflow settings to update (timezone, error handling, etc.)' }
         },
         returns: 'Updated workflow object with all fields including the changes applied',
         examples: [
-            'n8n_update_full_workflow({id: "abc", intent: "Rename workflow for clarity", name: "New Name"}) - Rename with intent',
             'n8n_update_full_workflow({id: "abc", name: "New Name"}) - Rename only',
-            'n8n_update_full_workflow({id: "xyz", intent: "Add error handling nodes", nodes: [...], connections: {...}}) - Full structure update',
-            'const wf = n8n_get_workflow({id}); wf.nodes.push(newNode); n8n_update_full_workflow({...wf, intent: "Add data processing node"}); // Add node'
+            'n8n_update_full_workflow({id: "xyz", nodes: [...], connections: {...}}) - Full structure update',
+            'const wf = n8n_get_workflow({id}); wf.nodes.push(newNode); n8n_update_full_workflow(wf); // Add node'
         ],
         useCases: [
             'Major workflow restructuring',
@@ -42,7 +39,6 @@ exports.n8nUpdateFullWorkflowDoc = {
         ],
         performance: 'Network-dependent - typically 200-500ms. Larger workflows take longer. Consider update_partial for better performance.',
         bestPractices: [
-            'Always include intent parameter - it helps provide better responses',
             'Get workflow first, modify, then update',
             'Validate with validate_workflow before updating',
             'Use update_partial for small changes',

@@ -8,7 +8,8 @@ export interface ProtocolNegotiationResult {
     isN8nClient: boolean;
     reasoning: string;
 }
-export declare const STANDARD_PROTOCOL_VERSION = "2025-03-26";
+export declare const STANDARD_PROTOCOL_VERSION = "2025-06-18";
+export declare const PREVIOUS_PROTOCOL_VERSION = "2025-03-26";
 export declare const N8N_PROTOCOL_VERSION = "2024-11-05";
 export declare const SUPPORTED_VERSIONS: string[];
 export declare function isN8nClient(clientInfo?: ClientInfo, userAgent?: string, headers?: Record<string, string | string[] | undefined>): boolean;

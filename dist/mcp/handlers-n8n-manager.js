@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getInstanceCacheStatistics = getInstanceCacheStatistics;
 exports.getInstanceCacheMetrics = getInstanceCacheMetrics;
@@ -47,15 +14,14 @@ exports.handleDeleteWorkflow = handleDeleteWorkflow;
 exports.handleListWorkflows = handleListWorkflows;
 exports.handleValidateWorkflow = handleValidateWorkflow;
 exports.handleAutofixWorkflow = handleAutofixWorkflow;
-exports.handleTestWorkflow = handleTestWorkflow;
+exports.handleTriggerWebhookWorkflow = handleTriggerWebhookWorkflow;
 exports.handleGetExecution = handleGetExecution;
 exports.handleListExecutions = handleListExecutions;
 exports.handleDeleteExecution = handleDeleteExecution;
 exports.handleHealthCheck = handleHealthCheck;
+exports.handleListAvailableTools = handleListAvailableTools;
 exports.handleDiagnostic = handleDiagnostic;
 exports.handleWorkflowVersions = handleWorkflowVersions;
-exports.handleDeployTemplate = handleDeployTemplate;
-exports.handleTriggerWebhookWorkflow = handleTriggerWebhookWorkflow;
 const n8n_api_client_1 = require("../services/n8n-api-client");
 const n8n_api_1 = require("../config/n8n-api");
 const n8n_api_2 = require("../types/n8n-api");
@@ -183,7 +149,6 @@ const updateWorkflowSchema = zod_1.z.object({
     connections: zod_1.z.record(zod_1.z.any()).optional(),
     settings: zod_1.z.any().optional(),
     createBackup: zod_1.z.boolean().optional(),
-    intent: zod_1.z.string().optional(),
 });
 const listWorkflowsSchema = zod_1.z.object({
     limit: zod_1.z.number().min(1).max(100).optional(),
@@ -210,23 +175,16 @@ const autofixWorkflowSchema = zod_1.z.object({
         'typeversion-correction',
         'error-output-config',
         'node-type-correction',
-        'webhook-missing-path',
-        'typeversion-upgrade',
-        'version-migration'
+        'webhook-missing-path'
     ])).optional(),
     confidenceThreshold: zod_1.z.enum(['high', 'medium', 'low']).optional().default('medium'),
     maxFixes: zod_1.z.number().optional().default(50)
 });
-const testWorkflowSchema = zod_1.z.object({
-    workflowId: zod_1.z.string(),
-    triggerType: zod_1.z.enum(['webhook', 'form', 'chat']).optional(),
+const triggerWebhookSchema = zod_1.z.object({
+    webhookUrl: zod_1.z.string().url(),
     httpMethod: zod_1.z.enum(['GET', 'POST', 'PUT', 'DELETE']).optional(),
-    webhookPath: zod_1.z.string().optional(),
-    message: zod_1.z.string().optional(),
-    sessionId: zod_1.z.string().optional(),
     data: zod_1.z.record(zod_1.z.unknown()).optional(),
     headers: zod_1.z.record(zod_1.z.string()).optional(),
-    timeout: zod_1.z.number().optional(),
     waitForResponse: zod_1.z.boolean().optional(),
 });
 const listExecutionsSchema = zod_1.z.object({
@@ -475,18 +433,12 @@ async function handleGetWorkflowMinimal(args, context) {
     }
 }
 async function handleUpdateWorkflow(args, repository, context) {
-    const startTime = Date.now();
-    const sessionId = `mutation_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    let workflowBefore = null;
-    let userIntent = 'Full workflow update';
     try {
         const client = ensureApiConfigured(context);
         const input = updateWorkflowSchema.parse(args);
-        const { id, createBackup, intent, ...updateData } = input;
-        userIntent = intent || 'Full workflow update';
+        const { id, createBackup, ...updateData } = input;
         if (updateData.nodes || updateData.connections) {
             const current = await client.getWorkflow(id);
-            workflowBefore = JSON.parse(JSON.stringify(current));
             if (createBackup !== false) {
                 try {
                     const versioningService = new workflow_versioning_service_1.WorkflowVersioningService(repository, client);
@@ -521,20 +473,6 @@ async function handleUpdateWorkflow(args, repository, context) {
             }
         }
         const workflow = await client.updateWorkflow(id, updateData);
-        if (workflowBefore) {
-            trackWorkflowMutationForFullUpdate({
-                sessionId,
-                toolName: 'n8n_update_full_workflow',
-                userIntent,
-                operations: [],
-                workflowBefore,
-                workflowAfter: workflow,
-                mutationSuccess: true,
-                durationMs: Date.now() - startTime,
-            }).catch(err => {
-                logger_1.logger.warn('Failed to track mutation telemetry:', err);
-            });
-        }
         return {
             success: true,
             data: workflow,
@@ -542,21 +480,6 @@ async function handleUpdateWorkflow(args, repository, context) {
         };
     }
     catch (error) {
-        if (workflowBefore) {
-            trackWorkflowMutationForFullUpdate({
-                sessionId,
-                toolName: 'n8n_update_full_workflow',
-                userIntent,
-                operations: [],
-                workflowBefore,
-                workflowAfter: workflowBefore,
-                mutationSuccess: false,
-                mutationError: error instanceof Error ? error.message : 'Unknown error',
-                durationMs: Date.now() - startTime,
-            }).catch(err => {
-                logger_1.logger.warn('Failed to track mutation telemetry for failed operation:', err);
-            });
-        }
         if (error instanceof zod_1.z.ZodError) {
             return {
                 success: false,
@@ -576,15 +499,6 @@ async function handleUpdateWorkflow(args, repository, context) {
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error occurred'
         };
-    }
-}
-async function trackWorkflowMutationForFullUpdate(data) {
-    try {
-        const { telemetry } = await Promise.resolve().then(() => __importStar(require('../telemetry/telemetry-manager.js')));
-        await telemetry.trackWorkflowMutation(data);
-    }
-    catch (error) {
-        logger_1.logger.debug('Telemetry tracking failed:', error);
     }
 }
 async function handleDeleteWorkflow(args, context) {
@@ -878,109 +792,22 @@ async function handleAutofixWorkflow(args, repository, context) {
         };
     }
 }
-async function handleTestWorkflow(args, context) {
+async function handleTriggerWebhookWorkflow(args, context) {
     try {
         const client = ensureApiConfigured(context);
-        const input = testWorkflowSchema.parse(args);
-        const { detectTriggerFromWorkflow, ensureRegistryInitialized, TriggerRegistry, } = await Promise.resolve().then(() => __importStar(require('../triggers')));
-        await ensureRegistryInitialized();
-        const workflow = await client.getWorkflow(input.workflowId);
-        let triggerType = input.triggerType;
-        let triggerInfo;
-        const detection = detectTriggerFromWorkflow(workflow);
-        if (!triggerType) {
-            if (detection.detected && detection.trigger) {
-                triggerType = detection.trigger.type;
-                triggerInfo = detection.trigger;
-            }
-            else {
-                return {
-                    success: false,
-                    error: 'Workflow cannot be triggered externally',
-                    details: {
-                        workflowId: input.workflowId,
-                        reason: detection.reason,
-                        hint: 'Only workflows with webhook, form, or chat triggers can be executed via the API. Add one of these trigger nodes to your workflow.',
-                    },
-                };
-            }
-        }
-        else {
-            if (detection.detected && detection.trigger?.type === triggerType) {
-                triggerInfo = detection.trigger;
-            }
-            else if (!detection.detected || detection.trigger?.type !== triggerType) {
-                return {
-                    success: false,
-                    error: `Workflow does not have a ${triggerType} trigger`,
-                    details: {
-                        workflowId: input.workflowId,
-                        requestedTrigger: triggerType,
-                        detectedTrigger: detection.trigger?.type || 'none',
-                        hint: detection.detected
-                            ? `Workflow has a ${detection.trigger?.type} trigger. Either use that type or omit triggerType for auto-detection.`
-                            : 'Workflow has no externally-triggerable triggers (webhook, form, or chat).',
-                    },
-                };
-            }
-        }
-        const handler = TriggerRegistry.getHandler(triggerType, client, context);
-        if (!handler) {
-            return {
-                success: false,
-                error: `No handler registered for trigger type: ${triggerType}`,
-                details: {
-                    supportedTypes: TriggerRegistry.getRegisteredTypes(),
-                },
-            };
-        }
-        if (handler.capabilities.requiresActiveWorkflow && !workflow.active) {
-            return {
-                success: false,
-                error: 'Workflow must be active to trigger via this method',
-                details: {
-                    workflowId: input.workflowId,
-                    triggerType,
-                    hint: 'Activate the workflow in n8n using n8n_update_partial_workflow with [{type: "activateWorkflow"}]',
-                },
-            };
-        }
-        if (triggerType === 'chat' && !input.message) {
-            return {
-                success: false,
-                error: 'Chat trigger requires a message parameter',
-                details: {
-                    hint: 'Provide message="your message" for chat triggers',
-                },
-            };
-        }
-        const triggerInput = {
-            workflowId: input.workflowId,
-            triggerType,
-            httpMethod: input.httpMethod,
-            webhookPath: input.webhookPath,
-            message: input.message || '',
-            sessionId: input.sessionId,
+        const input = triggerWebhookSchema.parse(args);
+        const webhookRequest = {
+            webhookUrl: input.webhookUrl,
+            httpMethod: input.httpMethod || 'POST',
             data: input.data,
-            formData: input.data,
             headers: input.headers,
-            timeout: input.timeout,
-            waitForResponse: input.waitForResponse,
+            waitForResponse: input.waitForResponse ?? true
         };
-        const response = await handler.execute(triggerInput, workflow, triggerInfo);
+        const response = await client.triggerWebhook(webhookRequest);
         return {
-            success: response.success,
-            data: response.data,
-            message: response.success
-                ? `Workflow triggered successfully via ${triggerType}`
-                : response.error,
-            executionId: response.executionId,
-            workflowId: input.workflowId,
-            details: {
-                triggerType,
-                metadata: response.metadata,
-                ...(response.details || {}),
-            },
+            success: true,
+            data: response,
+            message: 'Webhook triggered successfully'
         };
     }
     catch (error) {
@@ -988,20 +815,39 @@ async function handleTestWorkflow(args, context) {
             return {
                 success: false,
                 error: 'Invalid input',
-                details: { errors: error.errors },
+                details: { errors: error.errors }
             };
         }
         if (error instanceof n8n_errors_1.N8nApiError) {
+            const errorData = error.details;
+            const executionId = errorData?.executionId || errorData?.id || errorData?.execution?.id;
+            const workflowId = errorData?.workflowId || errorData?.workflow?.id;
+            if (executionId) {
+                return {
+                    success: false,
+                    error: (0, n8n_errors_1.formatExecutionError)(executionId, workflowId),
+                    code: error.code,
+                    executionId,
+                    workflowId: workflowId || undefined
+                };
+            }
+            if (error.code === 'SERVER_ERROR' || error.statusCode && error.statusCode >= 500) {
+                return {
+                    success: false,
+                    error: (0, n8n_errors_1.formatNoExecutionError)(),
+                    code: error.code
+                };
+            }
             return {
                 success: false,
                 error: (0, n8n_errors_1.getUserFriendlyErrorMessage)(error),
                 code: error.code,
-                details: error.details,
+                details: error.details
             };
         }
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error occurred',
+            error: error instanceof Error ? error.message : 'Unknown error occurred'
         };
     }
 }
@@ -1213,7 +1059,7 @@ async function handleHealthCheck(context) {
                         '1. Verify n8n instance is running',
                         '2. Check N8N_API_URL is correct',
                         '3. Verify N8N_API_KEY has proper permissions',
-                        '4. Run n8n_health_check with mode="diagnostic" for detailed analysis'
+                        '4. Run n8n_diagnostic for detailed analysis'
                     ]
                 }
             };
@@ -1223,6 +1069,60 @@ async function handleHealthCheck(context) {
             error: error instanceof Error ? error.message : 'Unknown error occurred'
         };
     }
+}
+async function handleListAvailableTools(context) {
+    const tools = [
+        {
+            category: 'Workflow Management',
+            tools: [
+                { name: 'n8n_create_workflow', description: 'Create new workflows' },
+                { name: 'n8n_get_workflow', description: 'Get workflow by ID' },
+                { name: 'n8n_get_workflow_details', description: 'Get detailed workflow info with stats' },
+                { name: 'n8n_get_workflow_structure', description: 'Get simplified workflow structure' },
+                { name: 'n8n_get_workflow_minimal', description: 'Get minimal workflow info' },
+                { name: 'n8n_update_workflow', description: 'Update existing workflows' },
+                { name: 'n8n_delete_workflow', description: 'Delete workflows' },
+                { name: 'n8n_list_workflows', description: 'List workflows with filters' },
+                { name: 'n8n_validate_workflow', description: 'Validate workflow from n8n instance' },
+                { name: 'n8n_autofix_workflow', description: 'Automatically fix common workflow errors' }
+            ]
+        },
+        {
+            category: 'Execution Management',
+            tools: [
+                { name: 'n8n_trigger_webhook_workflow', description: 'Trigger workflows via webhook' },
+                { name: 'n8n_get_execution', description: 'Get execution details' },
+                { name: 'n8n_list_executions', description: 'List executions with filters' },
+                { name: 'n8n_delete_execution', description: 'Delete execution records' }
+            ]
+        },
+        {
+            category: 'System',
+            tools: [
+                { name: 'n8n_health_check', description: 'Check API connectivity' },
+                { name: 'n8n_list_available_tools', description: 'List all available tools' }
+            ]
+        }
+    ];
+    const config = (0, n8n_api_1.getN8nApiConfig)();
+    const apiConfigured = config !== null;
+    return {
+        success: true,
+        data: {
+            tools,
+            apiConfigured,
+            configuration: config ? {
+                apiUrl: config.baseUrl,
+                timeout: config.timeout,
+                maxRetries: config.maxRetries
+            } : null,
+            limitations: [
+                'Cannot execute workflows directly (must use webhooks)',
+                'Cannot stop running executions',
+                'Tags and credentials have limited API support'
+            ]
+        }
+    };
 }
 function detectCloudPlatform() {
     if (process.env.RAILWAY_ENVIRONMENT)
@@ -1421,8 +1321,8 @@ async function handleDiagnostic(request, context) {
             apiStatus.error = error instanceof Error ? error.message : 'Unknown error';
         }
     }
-    const documentationTools = 7;
-    const managementTools = apiConfigured ? 13 : 0;
+    const documentationTools = 22;
+    const managementTools = apiConfigured ? 16 : 0;
     const totalTools = documentationTools + managementTools;
     const versionCheck = await (0, npm_version_checker_1.checkNpmVersion)();
     const cacheMetricsData = getInstanceCacheMetrics();
@@ -1549,7 +1449,7 @@ async function handleDiagnostic(request, context) {
                         example: 'validate_workflow({workflow: {...}})'
                     }
                 ],
-                note: '14 documentation tools available without API configuration'
+                note: '22 documentation tools available without API configuration'
             },
             whatYouCannotDo: [
                 '✗ Create/update workflows in n8n instance',
@@ -1564,8 +1464,8 @@ async function handleDiagnostic(request, context) {
                     '   N8N_API_URL=https://your-n8n-instance.com',
                     '   N8N_API_KEY=your_api_key_here',
                     '3. Restart the MCP server',
-                    '4. Run n8n_health_check with mode="diagnostic" to verify',
-                    '5. All 19 tools will be available!'
+                    '4. Run n8n_diagnostic again to verify',
+                    '5. All 38 tools will be available!'
                 ],
                 documentation: 'https://github.com/czlonkowski/n8n-mcp?tab=readme-ov-file#n8n-management-tools-optional---requires-api-configuration'
             }
@@ -1759,229 +1659,6 @@ async function handleWorkflowVersions(args, repository, context) {
                 success: false,
                 error: 'Invalid input',
                 details: { errors: error.errors }
-            };
-        }
-        return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error occurred'
-        };
-    }
-}
-const deployTemplateSchema = zod_1.z.object({
-    templateId: zod_1.z.number().positive().int(),
-    name: zod_1.z.string().optional(),
-    autoUpgradeVersions: zod_1.z.boolean().default(true),
-    autoFix: zod_1.z.boolean().default(true),
-    stripCredentials: zod_1.z.boolean().default(true)
-});
-async function handleDeployTemplate(args, templateService, repository, context) {
-    try {
-        const client = ensureApiConfigured(context);
-        const input = deployTemplateSchema.parse(args);
-        const template = await templateService.getTemplate(input.templateId, 'full');
-        if (!template) {
-            return {
-                success: false,
-                error: `Template ${input.templateId} not found`,
-                details: {
-                    hint: 'Use search_templates to find available templates',
-                    templateUrl: `https://n8n.io/workflows/${input.templateId}`
-                }
-            };
-        }
-        const workflow = JSON.parse(JSON.stringify(template.workflow));
-        if (!workflow || !workflow.nodes) {
-            return {
-                success: false,
-                error: 'Template has invalid workflow structure',
-                details: { templateId: input.templateId }
-            };
-        }
-        const workflowName = input.name || template.name;
-        const requiredCredentials = [];
-        for (const node of workflow.nodes) {
-            if (node.credentials && typeof node.credentials === 'object') {
-                for (const [credType] of Object.entries(node.credentials)) {
-                    requiredCredentials.push({
-                        nodeType: node.type,
-                        nodeName: node.name,
-                        credentialType: credType
-                    });
-                }
-            }
-        }
-        if (input.stripCredentials) {
-            workflow.nodes = workflow.nodes.map((node) => {
-                const { credentials, ...rest } = node;
-                return rest;
-            });
-        }
-        if (input.autoUpgradeVersions) {
-            const autoFixer = new workflow_auto_fixer_1.WorkflowAutoFixer(repository);
-            const validator = new workflow_validator_1.WorkflowValidator(repository, enhanced_config_validator_1.EnhancedConfigValidator);
-            const validationResult = await validator.validateWorkflow(workflow, {
-                validateNodes: true,
-                validateConnections: false,
-                validateExpressions: false,
-                profile: 'runtime'
-            });
-            const fixResult = await autoFixer.generateFixes(workflow, validationResult, [], { fixTypes: ['typeversion-upgrade', 'typeversion-correction'] });
-            if (fixResult.operations.length > 0) {
-                for (const op of fixResult.operations) {
-                    if (op.type === 'updateNode' && op.updates) {
-                        const node = workflow.nodes.find((n) => n.id === op.nodeId || n.name === op.nodeName);
-                        if (node) {
-                            for (const [path, value] of Object.entries(op.updates)) {
-                                if (path === 'typeVersion') {
-                                    node.typeVersion = value;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        const triggerNode = workflow.nodes.find((n) => n.type?.includes('Trigger') ||
-            n.type?.includes('webhook') ||
-            n.type === 'n8n-nodes-base.webhook');
-        const triggerType = triggerNode?.type?.split('.').pop() || 'manual';
-        const createdWorkflow = await client.createWorkflow({
-            name: workflowName,
-            nodes: workflow.nodes,
-            connections: workflow.connections,
-            settings: workflow.settings || { executionOrder: 'v1' }
-        });
-        const apiConfig = context ? (0, n8n_api_1.getN8nApiConfigFromContext)(context) : (0, n8n_api_1.getN8nApiConfig)();
-        const baseUrl = apiConfig?.baseUrl?.replace('/api/v1', '') || '';
-        let fixesApplied = [];
-        let fixSummary = '';
-        let autoFixStatus = 'skipped';
-        if (input.autoFix) {
-            try {
-                const autofixResult = await handleAutofixWorkflow({
-                    id: createdWorkflow.id,
-                    applyFixes: true,
-                    fixTypes: ['expression-format', 'typeversion-upgrade'],
-                    confidenceThreshold: 'medium'
-                }, repository, context);
-                if (autofixResult.success && autofixResult.data) {
-                    const fixData = autofixResult.data;
-                    autoFixStatus = 'success';
-                    if (fixData.fixesApplied && fixData.fixesApplied > 0) {
-                        fixesApplied = fixData.fixes || [];
-                        fixSummary = ` Auto-fixed ${fixData.fixesApplied} issue(s).`;
-                    }
-                }
-            }
-            catch (fixError) {
-                autoFixStatus = 'failed';
-                logger_1.logger.warn('Auto-fix failed after template deployment', {
-                    workflowId: createdWorkflow.id,
-                    error: fixError instanceof Error ? fixError.message : 'Unknown error'
-                });
-                fixSummary = ' Auto-fix failed (workflow deployed successfully).';
-            }
-        }
-        return {
-            success: true,
-            data: {
-                workflowId: createdWorkflow.id,
-                name: createdWorkflow.name,
-                active: false,
-                nodeCount: workflow.nodes.length,
-                triggerType,
-                requiredCredentials: requiredCredentials.length > 0 ? requiredCredentials : undefined,
-                url: baseUrl ? `${baseUrl}/workflow/${createdWorkflow.id}` : undefined,
-                templateId: input.templateId,
-                templateUrl: template.url || `https://n8n.io/workflows/${input.templateId}`,
-                autoFixStatus,
-                fixesApplied: fixesApplied.length > 0 ? fixesApplied : undefined
-            },
-            message: `Workflow "${createdWorkflow.name}" deployed successfully from template ${input.templateId}.${fixSummary} ${requiredCredentials.length > 0
-                ? `Configure ${requiredCredentials.length} credential(s) in n8n to activate.`
-                : ''}`
-        };
-    }
-    catch (error) {
-        if (error instanceof zod_1.z.ZodError) {
-            return {
-                success: false,
-                error: 'Invalid input',
-                details: { errors: error.errors }
-            };
-        }
-        if (error instanceof n8n_errors_1.N8nApiError) {
-            return {
-                success: false,
-                error: (0, n8n_errors_1.getUserFriendlyErrorMessage)(error),
-                code: error.code,
-                details: error.details
-            };
-        }
-        return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error occurred'
-        };
-    }
-}
-async function handleTriggerWebhookWorkflow(args, context) {
-    const triggerWebhookSchema = zod_1.z.object({
-        webhookUrl: zod_1.z.string().url(),
-        httpMethod: zod_1.z.enum(['GET', 'POST', 'PUT', 'DELETE']).optional(),
-        data: zod_1.z.record(zod_1.z.unknown()).optional(),
-        headers: zod_1.z.record(zod_1.z.string()).optional(),
-        waitForResponse: zod_1.z.boolean().optional(),
-    });
-    try {
-        const client = ensureApiConfigured(context);
-        const input = triggerWebhookSchema.parse(args);
-        const webhookRequest = {
-            webhookUrl: input.webhookUrl,
-            httpMethod: input.httpMethod || 'POST',
-            data: input.data,
-            headers: input.headers,
-            waitForResponse: input.waitForResponse ?? true
-        };
-        const response = await client.triggerWebhook(webhookRequest);
-        return {
-            success: true,
-            data: response,
-            message: 'Webhook triggered successfully'
-        };
-    }
-    catch (error) {
-        if (error instanceof zod_1.z.ZodError) {
-            return {
-                success: false,
-                error: 'Invalid input',
-                details: { errors: error.errors }
-            };
-        }
-        if (error instanceof n8n_errors_1.N8nApiError) {
-            const errorData = error.details;
-            const executionId = errorData?.executionId || errorData?.id || errorData?.execution?.id;
-            const workflowId = errorData?.workflowId || errorData?.workflow?.id;
-            if (executionId) {
-                return {
-                    success: false,
-                    error: (0, n8n_errors_1.formatExecutionError)(executionId, workflowId),
-                    code: error.code,
-                    executionId,
-                    workflowId: workflowId || undefined
-                };
-            }
-            if (error.code === 'SERVER_ERROR' || error.statusCode && error.statusCode >= 500) {
-                return {
-                    success: false,
-                    error: (0, n8n_errors_1.formatNoExecutionError)(),
-                    code: error.code
-                };
-            }
-            return {
-                success: false,
-                error: (0, n8n_errors_1.getUserFriendlyErrorMessage)(error),
-                code: error.code,
-                details: error.details
             };
         }
         return {
