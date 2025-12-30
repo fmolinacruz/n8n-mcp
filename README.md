@@ -1216,11 +1216,36 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please:
+Contributions are welcome! Please follow our branching strategy:
+
+### For Contributors
+
 1. Fork the repository
-2. Create a feature branch
+2. Create a feature branch following our naming convention:
+   - Core features: `feature/{scope}/{description}`
+   - Bug fixes: `fix/{scope}/{description}`
+   - Examples: `feature/mcp/add-tool`, `fix/api/timeout-error`
 3. Run tests (`npm test`)
-4. Submit a pull request
+4. Submit a pull request to `main`
+
+### Branching Strategy
+
+We follow a structured branching strategy for better organization and security:
+- **Main branch**: Core n8n-mcp functionality only
+- **Client branches**: Isolated client-specific work (`client/wdl/*`, `client/villakuyaya/*`)
+- **Feature branches**: New functionality (`feature/{scope}/{description}`)
+- **Fix branches**: Bug fixes (`fix/{scope}/{description}`)
+
+**📖 Full Documentation:**
+- [Branching Strategy Guide](./operations/docs/BRANCHING_STRATEGY.md) - Complete developer guide
+- [Git Strategy Evaluation](./operations/docs/GIT_STRATEGY_EVALUATION.md) - Implementation details
+- [Security Policy](./SECURITY.md) - Security best practices
+
+**🔒 Security:**
+A pre-commit hook is available to prevent accidental secret commits:
+```bash
+./operations/scripts/pre-commit-secret-check.sh --install
+```
 
 ### 🚀 For Maintainers: Automated Releases
 
